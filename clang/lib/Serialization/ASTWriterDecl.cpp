@@ -543,6 +543,8 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   if (RC)
     Record.AddStmt(RC);
 
+  Record.push_back(D->getODRHash());
+
   Record.push_back(D->getTemplatedKind());
   switch (D->getTemplatedKind()) {
   case FunctionDecl::TK_NonTemplate:
@@ -2098,6 +2100,7 @@ void ASTWriter::WriteDeclAbbrevs() {
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // LateParsed
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 3)); // Linkage
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));   // LocEnd
+  Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 32)); // ODRHash
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 3)); // TemplateKind
   // This Array slurps the rest of the record. Fortunately we want to encode
   // (nearly) all the remaining (variable number of) fields in the same way.

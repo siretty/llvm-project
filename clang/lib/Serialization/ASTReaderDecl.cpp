@@ -800,6 +800,9 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   if (HasTrailingRequiresClause)
     FD->TrailingRequiresClause = Record.readExpr();
 
+  FD->ODRHash = Record.readInt();
+  FD->HasODRHash = true;
+
   switch ((FunctionDecl::TemplatedKind)Record.readInt()) {
   case FunctionDecl::TK_NonTemplate:
     mergeRedeclarable(FD, Redecl);
