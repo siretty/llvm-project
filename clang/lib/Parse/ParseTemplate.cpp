@@ -594,8 +594,8 @@ NamedDecl *Parser::ParseTemplateParameter(unsigned Depth, unsigned Position) {
       // This is definitely a constrained parameter but there's been an error
       // parsing it.
       return nullptr;
-    return ParseConstrainedTemplateParameter(Depth, Position, ParamStartLoc,
-                                             SS, CD, FoundDecl,
+    return ParseConstrainedTemplateParameter(Depth, Position, ParamStartLoc, SS,
+                                             CD, FoundDecl, ConceptNameLoc,
                                              std::move(TALI));
   }
 
@@ -604,7 +604,6 @@ NamedDecl *Parser::ParseTemplateParameter(unsigned Depth, unsigned Position) {
   // list (e.g., template < ; Check here to implement >> style closures.
   return ParseNonTypeTemplateParameter(Depth, Position);
 }
-
 
 /// Try parsing a constrained-parameter construct at the current location. A
 /// constrained-parameter names a concept along with an optional set of template
@@ -636,21 +635,19 @@ bool Parser::TryParseConstrainedParameter(CXXScopeSpec &SS, ConceptDecl *&CD,
   }
 
   UnqualifiedId PossibleConceptName;
-  PossibleConceptName.setIdentifier(Tok.getIdentifierInfo(),
-                                    Tok.getLocation());
+  PossibleConceptName.setIdentifier(Tok.getIdentifierInfo(), Tok.getLocation());
   ConceptNameLoc = ConsumeToken();
 
   TemplateTy PossibleConcept;
   bool MemberOfUnknownSpecialization = false;
-  auto TNK = Actions.isTemplateName(getCurScope(), SS,
-                                    /*hasTemplateKeyword=*/false,
-                                    PossibleConceptName,
-                                    /*ObjectType=*/ParsedType(),
-                                    /*EnteringContext=*/false,
-                                    PossibleConcept,
-                                    MemberOfUnknownSpecialization, &FoundDecl);
-  assert(!MemberOfUnknownSpecialization
-         && "Member when we only allowed namespace scope qualifiers??");
+  auto TNK =
+      Actions.isTemplateName(getCurScope(), SS,
+                             /*hasTemplateKeyword=*/false, PossibleConceptName,
+                             /*ObjectType=*/ParsedType(),
+                             /*EnteringContext=*/false, PossibleConcept,
+                             MemberOfUnknownSpecialization, &FoundDecl);
+  assert(!MemberOfUnknownSpecialization &&
+         "Member when we only allowed namespace scope qualifiers??");
   if (!PossibleConcept || TNK != TNK_Concept_template) {
     TPA.Revert();
     return false;
@@ -668,14 +665,14 @@ bool Parser::TryParseConstrainedParameter(CXXScopeSpec &SS, ConceptDecl *&CD,
       CD = nullptr;
       return true;
     }
-    auto *TemplateId = (TemplateIdAnnotation*)Tok.getAnnotationValue();
+    auto *TemplateId = (TemplateIdAnnotation *)Tok.getAnnotationValue();
     TALI.setLAngleLoc(TemplateId->LAngleLoc);
     TALI.setRAngleLoc(TemplateId->RAngleLoc);
     // Translate the parser's template argument list into our AST format.
     Actions.translateTemplateArguments(
-      MutableArrayRef<ParsedTemplateArgument>(
-        TemplateId->getTemplateArgs(),
-        TemplateId->NumArgs), TALI);
+        MutableArrayRef<ParsedTemplateArgument>(TemplateId->getTemplateArgs(),
+                                                TemplateId->NumArgs),
+        TALI);
     ConsumeAnnotationToken();
   }
 
@@ -684,8 +681,8 @@ bool Parser::TryParseConstrainedParameter(CXXScopeSpec &SS, ConceptDecl *&CD,
   // If the user did not use a partial concept id and the concept does not
   // accept a single argument or parameter pack, fail now with a nicer error
   // message
-  if (TALI.size() == 0
-      && CD->getTemplateParameters()->getMinRequiredArguments() > 1) {
+  if (TALI.size() == 0 &&
+      CD->getTemplateParameters()->getMinRequiredArguments() > 1) {
     Diag(diag::err_constrained_parameter_missing_arguments) << CD;
     CD = nullptr;
   }
@@ -916,12 +913,12 @@ Parser::ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position) {
                                                DefaultArg.get());
 }
 
-NamedDecl *
-Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
-                                          SourceLocation ParamStartLoc,
-                                          const CXXScopeSpec &SS,
-                                          ConceptDecl *CD, NamedDecl *FoundDecl,
-                                          TemplateArgumentListInfo TALI) {
+NamedDecl *Parser::ParseConstrainedTemplateParameter(
+    unsigned Depth, unsigned Position, SourceLocation ParamStartLoc,
+    const CXXScopeSpec &SS, ConceptDecl *CD, NamedDecl *FoundDecl,
+    SourceLocation ConceptNameLoc, TemplateArgumentListInfo TALI) {
+  TentativeParsingAction TPA(*this);
+
   // Grab the ellipsis (if given).
   SourceLocation EllipsisLoc;
   TryConsumeToken(tok::ellipsis, EllipsisLoc);
@@ -956,6 +953,8 @@ Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
   NamedDecl *ConceptPrototypeParameter = *CD->getTemplateParameters()->begin();
   if (TemplateTypeParmDecl *TypeP = dyn_cast<TemplateTypeParmDecl>(
                                       ConceptPrototypeParameter)) {
+    TPA.Commit();
+
     ParsedType DefaultArg;
     if (TryConsumeToken(tok::equal, EqualLoc))
       DefaultArg = ParseTypeName(/*SourceRange=*/nullptr,
@@ -985,6 +984,8 @@ Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
                             Actions.Context.getTrivialTypeSourceInfo(Q))));
   } else if (TemplateTemplateParmDecl *TemplateP =
                dyn_cast<TemplateTemplateParmDecl>(ConceptPrototypeParameter)) {
+    TPA.Commit();
+
     ParsedTemplateArgument DefaultArg;
     if (TryConsumeToken(tok::equal, EqualLoc)) {
       DefaultArg = ParseTemplateTemplateArgument();
@@ -1024,6 +1025,36 @@ Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
     TALI.prependArgument(TAL);
   } else if (NonTypeTemplateParmDecl *NonTypeP =
                dyn_cast<NonTypeTemplateParmDecl>(ConceptPrototypeParameter)) {
+    TPA.Revert();
+
+    DeclSpec DS(AttrFactory);
+
+    const char *PrevSpec;
+    unsigned DiagID;
+    ParsedType TypeRep = ParsedType::make(NonTypeP->getTypeSourceInfo()->getType());
+    bool isInvalid = DS.SetTypeSpecType(DeclSpec::TST_typename, ConceptNameLoc, PrevSpec,
+                                   DiagID, TypeRep, Actions.Context.getPrintingPolicy());
+    assert(!isInvalid && "invalid type spec");
+    // TODO: PrevSpec and DiagID are currently unused (?)
+
+    // Parse the abstract-declarator, if present.
+    Declarator ParamDecl(DS, Declarator::TemplateParamContext);
+    ParseDeclarator(ParamDecl);
+
+    if (DS.getTypeSpecType() == DeclSpec::TST_unspecified) {
+      Diag(Tok.getLocation(), diag::err_expected_template_parameter);
+      return nullptr;
+    }
+
+    // Recover from misplaced ellipsis.
+    SourceLocation EllipsisLoc;
+    if (TryConsumeToken(tok::ellipsis, EllipsisLoc))
+      DiagnoseMisplacedEllipsisInDeclarator(EllipsisLoc, ParamDecl);
+
+    // If there is a default value, parse it.
+    // Per C++0x [basic.scope.pdecl]p9, we parse the default argument before
+    // we introduce the template parameter into the local scope.
+    SourceLocation EqualLoc;
     ExprResult DefaultArg;
     if (TryConsumeToken(tok::equal, EqualLoc)) {
       // C++ [temp.param]p15:
@@ -1035,22 +1066,15 @@ Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
       EnterExpressionEvaluationContext ConstantEvaluated(
           Actions, Sema::ExpressionEvaluationContext::ConstantEvaluated);
 
-      DefaultArg = Actions.CorrectDelayedTyposInExpr(
-                     ParseAssignmentExpression());
+      DefaultArg = Actions.CorrectDelayedTyposInExpr(ParseAssignmentExpression());
       if (DefaultArg.isInvalid())
         SkipUntil(tok::comma, tok::greater, StopAtSemi | StopBeforeMatch);
     }
 
-    DeclaredParm = cast_or_null<NamedDecl>(
-      Actions.ActOnNonTypeTemplateParameter(getCurScope(),
-                                            DeclSpec(getAttrFactory()),
-                                            ParamStartLoc,
-                                            NonTypeP->getTypeSourceInfo(),
-                                            ParamName, NameLoc,
-                                            EllipsisLoc.isValid(),
-                                            Depth, Position, EqualLoc,
-                                            DefaultArg.isInvalid() ? nullptr :
-                                                             DefaultArg.get()));
+    // Create the parameter.
+    DeclaredParm = Actions.ActOnNonTypeTemplateParameter(getCurScope(), ParamDecl,
+                                                 Depth, Position, EqualLoc,
+                                                 DefaultArg.get());
     if (!DeclaredParm)
       return nullptr;
 
@@ -1074,8 +1098,10 @@ Parser::ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
     TALI.prependArgument(
       TemplateArgumentLoc(DeclaredParmA,
                           TemplateArgumentLocInfo(DerivedArgument)));
-  } else
+  } else {
+    TPA.Revert();
     llvm_unreachable("Unrecognized concept prototype parameter type.");
+  }
 
   // We now have an actual template parameter declared - form the constraint
   // expression and attach it to the declared parameter.

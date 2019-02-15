@@ -2766,6 +2766,7 @@ private:
                                           SourceLocation ParamStartLoc,
                                           const CXXScopeSpec &SS,
                                           ConceptDecl *CD, NamedDecl *FoundDecl,
+                                          SourceLocation ConceptNameLoc,
                                           TemplateArgumentListInfo TALI);
   void DiagnoseMisplacedEllipsis(SourceLocation EllipsisLoc,
                                  SourceLocation CorrectLoc,
