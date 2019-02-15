@@ -2173,8 +2173,7 @@ public:
 
   /// \brief Create a class template node.
   static ClassTemplateDecl *Create(ASTContext &C, DeclContext *DC,
-                                   SourceLocation L,
-                                   DeclarationName Name,
+                                   SourceLocation L, DeclarationName Name,
                                    TemplateParameterList *Params,
                                    NamedDecl *Decl);
 
