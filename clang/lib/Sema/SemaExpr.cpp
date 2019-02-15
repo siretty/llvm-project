@@ -16004,7 +16004,7 @@ ExprResult Sema::CheckPlaceholderExpr(Expr *E) {
     // No guarantees that ResolveAndFixSingleFunctionTemplateSpecialization
     // leaves Result unchanged on failure.
     Result = E;
-    if (resolveAndFixAddressOfSingleOverloadCandidate(Result))
+    if (resolveAndFixAddressOfOnlyViableOverloadCandidate(Result))
       return Result;
 
     // If that failed, try to recover with a call.

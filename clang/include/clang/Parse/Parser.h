@@ -2754,15 +2754,15 @@ private:
   bool ParseTemplateParameterList(unsigned Depth,
                                   SmallVectorImpl<NamedDecl*> &TemplateParams);
   bool isStartOfTemplateTypeParameter();
-  Decl *ParseTemplateParameter(unsigned Depth, unsigned Position);
-  Decl *ParseTypeParameter(unsigned Depth, unsigned Position);
-  Decl *ParseTemplateTemplateParameter(unsigned Depth, unsigned Position);
-  Decl *ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position);
+  NamedDecl *ParseTemplateParameter(unsigned Depth, unsigned Position);
+  NamedDecl *ParseTypeParameter(unsigned Depth, unsigned Position);
+  NamedDecl *ParseTemplateTemplateParameter(unsigned Depth, unsigned Position);
+  NamedDecl *ParseNonTypeTemplateParameter(unsigned Depth, unsigned Position);
   bool TryParseConstrainedParameter(CXXScopeSpec &SS, ConceptDecl *&CD,
                                     NamedDecl *&FoundDecl,
                                     SourceLocation &ConceptNameLoc,
                                     TemplateArgumentListInfo &TALI);
-  Decl *ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
+  NamedDecl *ParseConstrainedTemplateParameter(unsigned Depth, unsigned Position,
                                           SourceLocation ParamStartLoc,
                                           const CXXScopeSpec &SS,
                                           ConceptDecl *CD, NamedDecl *FoundDecl,

@@ -2857,9 +2857,10 @@ public:
                                      bool *pHadMultipleCandidates = nullptr);
 
   FunctionDecl *
-  resolveAddressOfSingleOverloadCandidate(Expr *E, DeclAccessPair &FoundResult);
+  resolveAddressOfOnlyViableOverloadCandidate(Expr *E,
+                                              DeclAccessPair &FoundResult);
 
-  bool resolveAndFixAddressOfSingleOverloadCandidate(
+  bool resolveAndFixAddressOfOnlyViableOverloadCandidate(
       ExprResult &SrcExpr, bool DoFunctionPointerConversion = false);
 
   FunctionDecl *
@@ -6179,7 +6180,7 @@ public:
   void DiagnoseTemplateParameterShadow(SourceLocation Loc, Decl *PrevDecl);
   TemplateDecl *AdjustDeclIfTemplate(Decl *&Decl);
 
-  Decl *ActOnTypeParameter(Scope *S, bool Typename,
+  NamedDecl *ActOnTypeParameter(Scope *S, bool Typename,
                            SourceLocation EllipsisLoc,
                            SourceLocation KeyLoc,
                            IdentifierInfo *ParamName,
@@ -6192,18 +6193,12 @@ public:
                                              SourceLocation Loc);
   QualType CheckNonTypeTemplateParameterType(QualType T, SourceLocation Loc);
 
-  Decl *ActOnNonTypeTemplateParameter(Scope *S,
-                                      const DeclSpec &DS,
-                                      SourceLocation StartLoc,
-                                      TypeSourceInfo *TInfo,
-                                      IdentifierInfo *ParamName,
-                                      SourceLocation ParamNameLoc,
-                                      bool IsParameterPack,
+  NamedDecl *ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
                                       unsigned Depth,
                                       unsigned Position,
                                       SourceLocation EqualLoc,
-                                      Expr *Default);
-  Decl *ActOnTemplateTemplateParameter(Scope *S,
+                                      Expr *DefaultArg);
+  NamedDecl *ActOnTemplateTemplateParameter(Scope *S,
                                        SourceLocation TmpLoc,
                                        TemplateParameterList *Params,
                                        SourceLocation EllipsisLoc,
@@ -7197,7 +7192,7 @@ public:
                                     sema::TemplateDeductionInfo &Info);
 
   bool isTemplateTemplateParameterAtLeastAsSpecializedAs(
-      TemplateParameterList *PParam, TemplateDecl *AArg, SourceLocation Loc);
+      TemplateParameterList *P, TemplateDecl *AArg, SourceLocation Loc);
 
 
   /// \brief Given a template parameter list containing a single type parameter,

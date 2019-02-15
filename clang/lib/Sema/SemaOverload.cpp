@@ -11383,7 +11383,7 @@ Sema::ResolveAddressOfOverloadedFunction(Expr *AddressOfExpr,
 /// set for SrcExpr that can have their addresses taken, there is one candidate
 /// that is more constrained than the rest.
 FunctionDecl *
-Sema::resolveAddressOfSingleOverloadCandidate(Expr *E, DeclAccessPair &Pair) {
+Sema::resolveAddressOfOnlyViableOverloadCandidate(Expr *E, DeclAccessPair &Pair) {
   OverloadExpr::FindResult R = OverloadExpr::find(E);
   OverloadExpr *Ovl = R.Expression;
   bool IsResultAmbiguous = false;
@@ -11437,13 +11437,13 @@ Sema::resolveAddressOfSingleOverloadCandidate(Expr *E, DeclAccessPair &Pair) {
 ///
 /// Returns false if resolveAddressOfSingleOverloadCandidate fails.
 /// Otherwise, returns true. This may emit diagnostics and return true.
-bool Sema::resolveAndFixAddressOfSingleOverloadCandidate(
+bool Sema::resolveAndFixAddressOfOnlyViableOverloadCandidate(
     ExprResult &SrcExpr, bool DoFunctionPointerConverion) {
   Expr *E = SrcExpr.get();
   assert(E->getType() == Context.OverloadTy && "SrcExpr must be an overload");
 
   DeclAccessPair DAP;
-  FunctionDecl *Found = resolveAddressOfSingleOverloadCandidate(E, DAP);
+  FunctionDecl *Found = resolveAddressOfOnlyViableOverloadCandidate(E, DAP);
   if (!Found)
     return false;
 

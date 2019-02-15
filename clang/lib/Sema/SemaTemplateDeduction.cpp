@@ -3358,7 +3358,7 @@ ResolveOverloadForDeduction(Sema &S, TemplateParameterList *TemplateParams,
 
     DeclAccessPair DAP;
     if (FunctionDecl *Viable =
-            S.resolveAddressOfSingleOverloadCandidate(Arg, DAP))
+            S.resolveAddressOfOnlyViableOverloadCandidate(Arg, DAP))
       return GetTypeOfFunction(S, R, Viable);
 
     return QualType();

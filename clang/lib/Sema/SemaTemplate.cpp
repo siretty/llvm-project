@@ -777,7 +777,7 @@ static void maybeDiagnoseTemplateParameterShadow(Sema &SemaRef, Scope *S,
 /// ParamNameLoc is the location of the parameter name (if any).
 /// If the type parameter has a default argument, it will be added
 /// later via ActOnTypeParameterDefault.
-Decl *Sema::ActOnTypeParameter(Scope *S, bool Typename,
+NamedDecl *Sema::ActOnTypeParameter(Scope *S, bool Typename,
                                SourceLocation EllipsisLoc,
                                SourceLocation KeyLoc,
                                IdentifierInfo *ParamName,
@@ -907,31 +907,27 @@ QualType Sema::CheckNonTypeTemplateParameterType(QualType T,
   return QualType();
 }
 
-Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S,
-                                          const DeclSpec &DS,
-                                          SourceLocation StartLoc,
-                                          TypeSourceInfo *TInfo,
-                                          IdentifierInfo *ParamName,
-                                          SourceLocation ParamNameLoc,
-                                          bool IsParameterPack,
+NamedDecl *Sema::ActOnNonTypeTemplateParameter(Scope *S, Declarator &D,
                                           unsigned Depth,
                                           unsigned Position,
                                           SourceLocation EqualLoc,
                                           Expr *Default) {
+  TypeSourceInfo *TInfo = GetTypeForDeclarator(D, S);
 
   // Check that we have valid decl-specifiers specified.
-  auto CheckValidDeclSpecifiers = [this, &DS] {
+  auto CheckValidDeclSpecifiers = [this, &D] {
     // C++ [temp.param]
-    // p1
+    // p1 
     //   template-parameter:
     //     ...
     //     parameter-declaration
-    // p2
+    // p2 
     //   ... A storage class shall not be specified in a template-parameter
     //   declaration.
     // [dcl.typedef]p1: 
     //   The typedef specifier [...] shall not be used in the decl-specifier-seq
     //   of a parameter-declaration
+    const DeclSpec &DS = D.getDeclSpec();
     auto EmitDiag = [this](SourceLocation Loc) {
       Diag(Loc, diag::err_invalid_decl_specifier_in_nontype_parm)
           << FixItHint::CreateRemoval(Loc);
@@ -973,7 +969,7 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S,
   CheckValidDeclSpecifiers();
   
   if (TInfo->getType()->isUndeducedType()) {
-    Diag(ParamNameLoc,
+    Diag(D.getIdentifierLoc(),
          diag::warn_cxx14_compat_template_nontype_parm_auto_type)
       << QualType(TInfo->getType()->getContainedAutoType(), 0);
   }
@@ -982,16 +978,18 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S,
          "Non-type template parameter not in template parameter scope!");
   bool Invalid = false;
 
-  QualType T = CheckNonTypeTemplateParameterType(TInfo, ParamNameLoc);
+  QualType T = CheckNonTypeTemplateParameterType(TInfo, D.getIdentifierLoc());
   if (T.isNull()) {
     T = Context.IntTy; // Recover with an 'int' type.
     Invalid = true;
   }
 
+  IdentifierInfo *ParamName = D.getIdentifier();
+  bool IsParameterPack = D.hasEllipsis();
   NonTypeTemplateParmDecl *Param
     = NonTypeTemplateParmDecl::Create(Context, Context.getTranslationUnitDecl(),
-                                      StartLoc,
-                                      ParamNameLoc,
+                                      D.getLocStart(),
+                                      D.getIdentifierLoc(),
                                       Depth, Position, ParamName, T,
                                       IsParameterPack, TInfo);
   Param->setAccess(AS_public);
@@ -1000,7 +998,8 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S,
     Param->setInvalidDecl();
 
   if (ParamName) {
-    maybeDiagnoseTemplateParameterShadow(*this, S, ParamNameLoc, ParamName);
+    maybeDiagnoseTemplateParameterShadow(*this, S, D.getIdentifierLoc(),
+                                         ParamName);
 
     // Add the template parameter into the current scope.
     S->AddDecl(Param);
@@ -1039,7 +1038,7 @@ Decl *Sema::ActOnNonTypeTemplateParameter(Scope *S,
 /// ActOnTemplateTemplateParameter - Called when a C++ template template
 /// parameter (e.g. T in template <template \<typename> class T> class array)
 /// has been parsed. S is the current scope.
-Decl *Sema::ActOnTemplateTemplateParameter(Scope* S,
+NamedDecl *Sema::ActOnTemplateTemplateParameter(Scope* S,
                                            SourceLocation TmpLoc,
                                            TemplateParameterList *Params,
                                            SourceLocation EllipsisLoc,
@@ -2207,14 +2206,16 @@ bool Sema::CheckTemplateParameterList(TemplateParameterList *NewParams,
   // We were missing some default arguments at the end of the list, so remove
   // all of the default arguments.
   if (RemoveDefaultArguments) {
-    for (NamedDecl *NewParam : *NewParams) {
-      if (TemplateTypeParmDecl *TTP = dyn_cast<TemplateTypeParmDecl>(NewParam))
+    for (TemplateParameterList::iterator NewParam = NewParams->begin(),
+                                      NewParamEnd = NewParams->end();
+         NewParam != NewParamEnd; ++NewParam) {
+      if (TemplateTypeParmDecl *TTP = dyn_cast<TemplateTypeParmDecl>(*NewParam))
         TTP->removeDefaultArgument();
       else if (NonTypeTemplateParmDecl *NTTP
-                                = dyn_cast<NonTypeTemplateParmDecl>(NewParam))
+                                = dyn_cast<NonTypeTemplateParmDecl>(*NewParam))
         NTTP->removeDefaultArgument();
       else
-        cast<TemplateTemplateParmDecl>(NewParam)->removeDefaultArgument();
+        cast<TemplateTemplateParmDecl>(*NewParam)->removeDefaultArgument();
     }
   }
 
@@ -2988,7 +2989,6 @@ QualType Sema::CheckTemplateIdType(TemplateName Name,
   bool InstantiationDependent = false;
   if (TypeAliasTemplateDecl *AliasTemplate =
           dyn_cast<TypeAliasTemplateDecl>(Template)) {
-
     // Find the canonical type for this type alias template specialization.
     TypeAliasDecl *Pattern = AliasTemplate->getTemplatedDecl();
     if (Pattern->isInvalidDecl())
@@ -4003,10 +4003,9 @@ ExprResult Sema::BuildTemplateIdExpr(const CXXScopeSpec &SS,
 
   // In C++1y, check variable template ids.
   bool InstantiationDependent;
-  bool DependentArguments =
-    TemplateSpecializationType::anyDependentTemplateArguments(
-      *TemplateArgs, InstantiationDependent);
-  if (R.getAsSingle<VarTemplateDecl>() && !DependentArguments) {
+  if (R.getAsSingle<VarTemplateDecl>() &&
+      !TemplateSpecializationType::anyDependentTemplateArguments(
+           *TemplateArgs, InstantiationDependent)) {
     return CheckVarTemplateId(SS, R.getLookupNameInfo(),
                               R.getAsSingle<VarTemplateDecl>(),
                               TemplateKWLoc, TemplateArgs);
