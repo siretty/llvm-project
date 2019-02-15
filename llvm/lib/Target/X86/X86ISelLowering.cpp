@@ -31003,8 +31003,8 @@ static SDValue combineExtractVectorElt(SDNode *N, SelectionDAG &DAG,
     DAG.ReplaceAllUsesOfValueWith(SDValue(Extract, 0), Vals[IdxVal]);
   }
 
-  // The replacement was made in place; don't return anything.
-  return SDValue();
+  // The replacement was made in place; return N so it won't be revisited.
+  return SDValue(N, 0);
 }
 
 /// If a vector select has an operand that is -1 or 0, try to simplify the
@@ -32429,6 +32429,10 @@ static SDValue combineVMUL(SDNode *N, SelectionDAG &DAG,
   SDLoc dl(N);
 
   if (VT.getScalarType() != MVT::i64)
+    return SDValue();
+
+  // Don't try to lower 256 bit integer vectors on AVX1 targets.
+  if (!Subtarget.hasAVX2() && VT.getVectorNumElements() > 2)
     return SDValue();
 
   MVT MulVT = MVT::getVectorVT(MVT::i32, VT.getVectorNumElements() * 2);
