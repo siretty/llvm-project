@@ -27,7 +27,7 @@ using r1i4 = r1<C>; // expected-error{{constraints not satisfied for class templ
 
 struct D { void foo() {} };
 
-template<typename T> requires requires (T a) { { a.foo() }; } // expected-note{{because 'a.foo()' would be invalid: no member named 'foo' in 'A'}} expected-note{{because 'a.foo()' would be invalid: member reference base type 'int' is not a structure or union}} expected-note{{because 'a.foo()' would be invalid: member function 'foo' not viable: 'this' argument has type 'const D', but function is not marked const}}
+template<typename T> requires requires (T a) { { a.foo() }; } // expected-note{{because 'a.foo()' would be invalid: no member named 'foo' in 'A'}} expected-note{{because 'a.foo()' would be invalid: member reference base type 'int' is not a structure or union}} expected-note{{because 'a.foo()' would be invalid: 'this' argument to member function 'foo' has type 'const D', but function is not marked const}}
 struct r2 {};
 
 using r2i1 = r2<int>; // expected-error{{constraints not satisfied for class template 'r2' [with T = int]}}
