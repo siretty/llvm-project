@@ -389,7 +389,7 @@ bool Declarator::isDeclarationOfFunction() const {
 }
 
 bool Declarator::isStaticMember() {
-  assert(getContext() == MemberContext);
+  assert(getContext() == DeclaratorContext::MemberContext);
   return getDeclSpec().getStorageClassSpec() == DeclSpec::SCS_static ||
          (getName().Kind == UnqualifiedId::IK_OperatorFunctionId &&
           CXXMethodDecl::isStaticOverloadedOperator(
