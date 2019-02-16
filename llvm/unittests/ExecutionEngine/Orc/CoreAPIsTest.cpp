@@ -36,7 +36,7 @@ TEST(CoreAPIsTest, AsynchronousSymbolQuerySuccessfulResolutionOnly) {
   auto OnReady = 
     [&](Error Err) {
       cantFail(std::move(Err));
-      OnResolutionRun = true;
+      OnReadyRun = true;
     };
 
   AsynchronousSymbolQuery Q(Names, OnResolution, OnReady);
@@ -45,6 +45,7 @@ TEST(CoreAPIsTest, AsynchronousSymbolQuerySuccessfulResolutionOnly) {
 
   EXPECT_TRUE(OnResolutionRun) << "OnResolutionCallback was not run";
   EXPECT_FALSE(OnReadyRun) << "OnReady unexpectedly run";
+  errs() << "Exiting test\n";
 }
 
 }
