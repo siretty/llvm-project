@@ -2996,10 +2996,10 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       break;
     case DeclaratorContext::PrototypeContext:
     case DeclaratorContext::LambdaExprParameterContext:
-    case DeclaratorContext::RequiresExprContext:
     case DeclaratorContext::ObjCParameterContext:
     case DeclaratorContext::ObjCResultContext:
     case DeclaratorContext::KNRTypeListContext:
+    case DeclaratorContext::RequiresExprContext:
       // C++ [dcl.fct]p6:
       //   Types shall not be defined in return or parameter types.
       DiagID = diag::err_type_defined_in_param_type;

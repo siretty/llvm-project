@@ -2334,9 +2334,9 @@ public:
     case DeclaratorContext::ObjCCatchContext:
     case DeclaratorContext::BlockLiteralContext:
     case DeclaratorContext::LambdaExprContext:
-    case DeclaratorContext::RequiresExprContext:
     case DeclaratorContext::ConversionIdContext:
     case DeclaratorContext::TrailingReturnContext:
+    case DeclaratorContext::RequiresExprContext:
       return false;
 
     case DeclaratorContext::BlockContext:
