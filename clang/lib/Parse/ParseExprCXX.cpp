@@ -1794,7 +1794,7 @@ Sema::ConditionResult Parser::ParseCXXCondition(StmtResult *InitStmt,
   // type-specifier-seq
   DeclSpec DS(AttrFactory);
   DS.takeAttributesFrom(attrs);
-  ParseSpecifierQualifierList(DS, AS_none, DSC_condition);
+  ParseSpecifierQualifierList(DS, AS_none, DeclSpecContext::DSC_condition);
 
   // declarator
   Declarator DeclaratorInfo(DS, DeclaratorContext::ConditionContext);
@@ -1995,7 +1995,7 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
 ///     type-specifier type-specifier-seq[opt]
 ///
 bool Parser::ParseCXXTypeSpecifierSeq(DeclSpec &DS) {
-  ParseSpecifierQualifierList(DS, AS_none, DSC_type_specifier);
+  ParseSpecifierQualifierList(DS, AS_none, DeclSpecContext::DSC_type_specifier);
   DS.Finish(Actions, Actions.getASTContext().getPrintingPolicy());
   return false;
 }
