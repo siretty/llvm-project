@@ -3055,14 +3055,14 @@ ExprResult Parser::ParseRequiresExpression() {
         Actions.ActOnExitRequiresExpr();
         return ExprError();
       }
-      if (TypeName.getKind() != UnqualifiedId::IK_Identifier &&
-          TypeName.getKind() != UnqualifiedId::IK_TemplateId) {
+      if (TypeName.getKind() != UnqualifiedIdKind::IK_Identifier &&
+          TypeName.getKind() != UnqualifiedIdKind::IK_TemplateId) {
         Diag(IdLoc, diag::err_requires_expr_type_req_illegal_identifier);
         Braces.skipToEnd();
         Actions.ActOnExitRequiresExpr();
         return ExprError();
       }
-      if (TypeName.getKind() == UnqualifiedId::IK_Identifier &&
+      if (TypeName.getKind() == UnqualifiedIdKind::IK_Identifier &&
           Tok.is(tok::less)) {
         SourceLocation ArgListLoc = ConsumeToken();
         TemplateArgList List;

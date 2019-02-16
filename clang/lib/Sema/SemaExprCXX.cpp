@@ -7694,8 +7694,8 @@ Requirement *Sema::ActOnTypeRequirement(SourceLocation TypenameKWLoc,
                                         CXXScopeSpec TypeScope,
                                         UnqualifiedId &TypeName) {
   llvm::Optional<ASTTemplateArgumentListInfo> TALI;
-  assert((TypeName.getKind() == UnqualifiedId::IK_TemplateId ||
-          TypeName.getKind() == UnqualifiedId::IK_Identifier) &&
+  assert((TypeName.getKind() == UnqualifiedIdKind::IK_TemplateId ||
+          TypeName.getKind() == UnqualifiedIdKind::IK_Identifier) &&
          "Only template-id or identifier allowed in type requirement.");
 
   TemplateArgumentListInfo TemplateArgsBuffer;
