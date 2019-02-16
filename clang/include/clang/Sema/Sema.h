@@ -9803,7 +9803,8 @@ public:
                                bool AllowBothBool, bool AllowBoolConversion);
   QualType GetSignedVectorType(QualType V);
   QualType CheckVectorCompareOperands(ExprResult &LHS, ExprResult &RHS,
-                                      SourceLocation Loc, bool isRelational);
+                                      SourceLocation Loc,
+                                      BinaryOperatorKind Opc);
   QualType CheckVectorLogicalOperands(ExprResult &LHS, ExprResult &RHS,
                                       SourceLocation Loc);
 
