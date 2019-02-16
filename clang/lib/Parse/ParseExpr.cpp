@@ -996,9 +996,10 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
             DS.SetRangeEnd(ILoc);
             const char *PrevSpec = nullptr;
             unsigned DiagID;
-            DS.SetTypeSpecType(TST_typename, ILoc, PrevSpec, DiagID, Typ,
+            DS.SetTypeSpecType(TypeSpecifierType::TST_typename, ILoc, PrevSpec,
+                               DiagID, Typ,
                                Actions.getASTContext().getPrintingPolicy());
-            
+
             Declarator DeclaratorInfo(DS, DeclaratorContext::TypeNameContext);
             TypeResult Ty = Actions.ActOnTypeName(getCurScope(), 
                                                   DeclaratorInfo);
@@ -1204,8 +1205,8 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
 
       const char *PrevSpec = nullptr;
       unsigned DiagID;
-      DS.SetTypeSpecType(TST_typename, Tok.getAnnotationEndLoc(),
-                         PrevSpec, DiagID, Type,
+      DS.SetTypeSpecType(TypeSpecifierType::TST_typename,
+                         Tok.getAnnotationEndLoc(), PrevSpec, DiagID, Type,
                          Actions.getASTContext().getPrintingPolicy());
 
       Declarator DeclaratorInfo(DS, DeclaratorContext::TypeNameContext);
