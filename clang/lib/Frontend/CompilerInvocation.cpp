@@ -682,6 +682,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                                        OPT_fno_function_sections, false);
   Opts.DataSections = Args.hasFlag(OPT_fdata_sections,
                                    OPT_fno_data_sections, false);
+  Opts.StackSizeSection =
+      Args.hasFlag(OPT_fstack_size_section, OPT_fno_stack_size_section, false);
   Opts.UniqueSectionNames = Args.hasFlag(OPT_funique_section_names,
                                          OPT_fno_unique_section_names, true);
 
@@ -718,6 +720,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
 
   Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
   Opts.VerifyModule = !Args.hasArg(OPT_disable_llvm_verifier);
+
+  Opts.ControlFlowGuard = Args.hasArg(OPT_cfguard);
 
   Opts.DisableGCov = Args.hasArg(OPT_test_coverage);
   Opts.EmitGcovArcs = Args.hasArg(OPT_femit_coverage_data);
