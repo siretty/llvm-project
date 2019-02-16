@@ -2183,7 +2183,7 @@ public:
     TUK_Friend       // Friend declaration:  'friend struct foo;'
   };
 
-  Decl *ActOnTag(Scope *S, TypeSpecifierType TagSpec, TagUseKind TUK,
+  Decl *ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
                  SourceLocation KWLoc, CXXScopeSpec &SS, IdentifierInfo *Name,
                  SourceLocation NameLoc, AttributeList *Attr,
                  AccessSpecifier AS, SourceLocation ModulePrivateLoc,
@@ -2194,14 +2194,14 @@ public:
                  SkipBodyInfo *SkipBody = nullptr);
 
   Decl *ActOnTemplatedFriendTag(Scope *S, SourceLocation FriendLoc,
-                                TypeSpecifierType TagSpec, SourceLocation TagLoc,
+                                unsigned TagSpec, SourceLocation TagLoc,
                                 CXXScopeSpec &SS,
                                 IdentifierInfo *Name, SourceLocation NameLoc,
                                 AttributeList *Attr,
                                 MultiTemplateParamsArg TempParamLists);
 
   TypeResult ActOnDependentTag(Scope *S,
-                               TypeSpecifierType TagSpec,
+                               unsigned TagSpec,
                                TagUseKind TUK,
                                const CXXScopeSpec &SS,
                                IdentifierInfo *Name,
@@ -6239,14 +6239,17 @@ public:
       ArrayRef<TemplateParameterList *> ParamLists,
       bool IsFriend, bool &IsMemberSpecialization, bool &Invalid);
 
-  DeclResult CheckClassTemplate(
-      Scope *S, TypeSpecifierType TagSpec, TagUseKind TUK, SourceLocation KWLoc,
-      CXXScopeSpec &SS, IdentifierInfo *Name, SourceLocation NameLoc,
-      AttributeList *Attr, TemplateParameterList *TemplateParams,
-      AccessSpecifier AS, SourceLocation ModulePrivateLoc,
-      SourceLocation FriendLoc, unsigned NumOuterTemplateParamLists,
-      TemplateParameterList **OuterTemplateParamLists,
-      SkipBodyInfo *SkipBody = nullptr);
+  DeclResult CheckClassTemplate(Scope *S, unsigned TagSpec, TagUseKind TUK,
+                                SourceLocation KWLoc, CXXScopeSpec &SS,
+                                IdentifierInfo *Name, SourceLocation NameLoc,
+                                AttributeList *Attr,
+                                TemplateParameterList *TemplateParams,
+                                AccessSpecifier AS,
+                                SourceLocation ModulePrivateLoc,
+                                SourceLocation FriendLoc,
+                                unsigned NumOuterTemplateParamLists,
+                            TemplateParameterList **OuterTemplateParamLists,
+                                SkipBodyInfo *SkipBody = nullptr);
 
   TemplateArgumentLoc getTrivialTemplateArgumentLoc(const TemplateArgument &Arg,
                                                     QualType NTTPType,
@@ -6324,7 +6327,7 @@ public:
       TemplateTy &Template, bool AllowInjectedClassName = false);
 
   DeclResult
-  ActOnClassTemplateSpecialization(Scope *S, TypeSpecifierType TagSpec, TagUseKind TUK,
+  ActOnClassTemplateSpecialization(Scope *S, unsigned TagSpec, TagUseKind TUK,
                                    SourceLocation KWLoc,
                                    SourceLocation ModulePrivateLoc,
                                    TemplateIdAnnotation &TemplateId,
@@ -6367,7 +6370,7 @@ public:
   ActOnExplicitInstantiation(Scope *S,
                              SourceLocation ExternLoc,
                              SourceLocation TemplateLoc,
-                             TypeSpecifierType TagSpec,
+                             unsigned TagSpec,
                              SourceLocation KWLoc,
                              const CXXScopeSpec &SS,
                              TemplateTy Template,
@@ -6381,7 +6384,7 @@ public:
   ActOnExplicitInstantiation(Scope *S,
                              SourceLocation ExternLoc,
                              SourceLocation TemplateLoc,
-                             TypeSpecifierType TagSpec,
+                             unsigned TagSpec,
                              SourceLocation KWLoc,
                              CXXScopeSpec &SS,
                              IdentifierInfo *Name,
@@ -10375,7 +10378,7 @@ public:
                                        SourceLocation OpLoc, bool IsArrow,
                                        bool IsBaseExprStatement);
   void CodeCompletePostfixExpression(Scope *S, ExprResult LHS);
-  void CodeCompleteTag(Scope *S, TypeSpecifierType TagSpec);
+  void CodeCompleteTag(Scope *S, unsigned TagSpec);
   void CodeCompleteTypeQualifiers(DeclSpec &DS);
   void CodeCompleteFunctionQualifiers(DeclSpec &DS, Declarator &D,
                                       const VirtSpecifiers *VS = nullptr);
