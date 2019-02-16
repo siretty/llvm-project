@@ -11565,9 +11565,6 @@ Sema::ResolveSingleFunctionTemplateSpecialization(OverloadExpr *ovl,
   return Matched;
 }
 
-
-
-
 // Resolve and fix an overloaded expression that can be resolved
 // because it identifies a single function template specialization.
 //
