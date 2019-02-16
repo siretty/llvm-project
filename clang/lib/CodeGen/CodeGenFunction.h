@@ -3697,6 +3697,10 @@ public:
   RValue EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
                          const CallExpr *E, ReturnValueSlot ReturnValue);
 
+  RValue emitFortifiedStdLibCall(CodeGenFunction &CGF, const CallExpr *CE,
+                                 unsigned BuiltinID, unsigned BOSType,
+                                 unsigned Flag);
+
   RValue emitRotate(const CallExpr *E, bool IsRotateRight);
 
   /// Emit IR for __builtin_os_log_format.
@@ -3827,6 +3831,8 @@ public:
                              llvm::Type *returnType);
   llvm::Value *EmitObjCAllocWithZone(llvm::Value *value,
                                      llvm::Type *returnType);
+  llvm::Value *EmitObjCAllocInit(llvm::Value *value, llvm::Type *resultType);
+
   llvm::Value *EmitObjCThrowOperand(const Expr *expr);
   llvm::Value *EmitObjCConsumeObject(QualType T, llvm::Value *Ptr);
   llvm::Value *EmitObjCExtendObjectLifetime(QualType T, llvm::Value *Ptr);

@@ -226,9 +226,9 @@ static const MachineInfo &getOutputFormatMachineInfo(StringRef Format) {
   return Iter->getValue();
 }
 
-static void addGlobalSymbolsFromFile(std::vector<NameOrRegex> &Symbols,
-                                     BumpPtrAllocator &Alloc,
-                                     StringRef Filename, bool UseRegex) {
+static void addSymbolsFromFile(std::vector<NameOrRegex> &Symbols,
+                               BumpPtrAllocator &Alloc, StringRef Filename,
+                               bool UseRegex) {
   StringSaver Saver(Alloc);
   SmallVector<StringRef, 16> Lines;
   auto BufOrErr = MemoryBuffer::getFile(Filename);
@@ -263,7 +263,7 @@ static Error addSymbolsToRenameFromFile(StringMap<StringRef> &SymbolsToRename,
   SmallVector<StringRef, 16> Lines;
   auto BufOrErr = MemoryBuffer::getFile(Filename);
   if (!BufOrErr)
-    return createError(Filename, BufOrErr.getError());
+    return createFileError(Filename, BufOrErr.getError());
 
   BufOrErr.get()->getBuffer().split(Lines, '\n');
   size_t NumLines = Lines.size();
@@ -445,17 +445,34 @@ DriverConfig parseObjcopyOptions(ArrayRef<const char *> ArgsArr) {
       InputArgs.hasArg(OBJCOPY_decompress_debug_sections);
   for (auto Arg : InputArgs.filtered(OBJCOPY_localize_symbol))
     Config.SymbolsToLocalize.emplace_back(Arg->getValue(), UseRegex);
+  for (auto Arg : InputArgs.filtered(OBJCOPY_localize_symbols))
+    addSymbolsFromFile(Config.SymbolsToLocalize, DC.Alloc, Arg->getValue(),
+                       UseRegex);
   for (auto Arg : InputArgs.filtered(OBJCOPY_keep_global_symbol))
     Config.SymbolsToKeepGlobal.emplace_back(Arg->getValue(), UseRegex);
   for (auto Arg : InputArgs.filtered(OBJCOPY_keep_global_symbols))
-    addGlobalSymbolsFromFile(Config.SymbolsToKeepGlobal, DC.Alloc,
-                             Arg->getValue(), UseRegex);
+    addSymbolsFromFile(Config.SymbolsToKeepGlobal, DC.Alloc, Arg->getValue(),
+                       UseRegex);
   for (auto Arg : InputArgs.filtered(OBJCOPY_globalize_symbol))
     Config.SymbolsToGlobalize.emplace_back(Arg->getValue(), UseRegex);
+  for (auto Arg : InputArgs.filtered(OBJCOPY_globalize_symbols))
+    addSymbolsFromFile(Config.SymbolsToGlobalize, DC.Alloc, Arg->getValue(),
+                       UseRegex);
   for (auto Arg : InputArgs.filtered(OBJCOPY_weaken_symbol))
     Config.SymbolsToWeaken.emplace_back(Arg->getValue(), UseRegex);
+  for (auto Arg : InputArgs.filtered(OBJCOPY_weaken_symbols))
+    addSymbolsFromFile(Config.SymbolsToWeaken, DC.Alloc, Arg->getValue(),
+                       UseRegex);
   for (auto Arg : InputArgs.filtered(OBJCOPY_strip_symbol))
     Config.SymbolsToRemove.emplace_back(Arg->getValue(), UseRegex);
+  for (auto Arg : InputArgs.filtered(OBJCOPY_strip_symbols))
+    addSymbolsFromFile(Config.SymbolsToRemove, DC.Alloc, Arg->getValue(),
+                       UseRegex);
+  for (auto Arg : InputArgs.filtered(OBJCOPY_strip_unneeded_symbol))
+    Config.UnneededSymbolsToRemove.emplace_back(Arg->getValue(), UseRegex);
+  for (auto Arg : InputArgs.filtered(OBJCOPY_strip_unneeded_symbols))
+    addSymbolsFromFile(Config.UnneededSymbolsToRemove, DC.Alloc,
+                       Arg->getValue(), UseRegex);
   for (auto Arg : InputArgs.filtered(OBJCOPY_keep_symbol))
     Config.SymbolsToKeep.emplace_back(Arg->getValue(), UseRegex);
 

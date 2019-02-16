@@ -1474,6 +1474,86 @@ RValue CodeGenFunction::emitRotate(const CallExpr *E, bool IsRotateRight) {
   return RValue::get(Builder.CreateCall(F, { Src, Src, ShiftAmt }));
 }
 
+/// For a call to a builtin C standard library function, emit a call to a
+/// fortified variant using __builtin_object_size. For instance, instead of
+/// emitting `sprintf(buf, "%d", 32)`, this function would emit
+/// `__sprintf_chk(buf, Flag, __builtin_object_size(buf, 0), "%d", 32)`.
+RValue CodeGenFunction::emitFortifiedStdLibCall(CodeGenFunction &CGF,
+                                                const CallExpr *CE,
+                                                unsigned BuiltinID,
+                                                unsigned BOSType,
+                                                unsigned Flag) {
+  SmallVector<llvm::Value *, 8> ArgVals;
+  for (const Expr *Arg : CE->arguments())
+    ArgVals.push_back(EmitScalarExpr(Arg));
+
+  llvm::Value *FlagVal = llvm::ConstantInt::get(IntTy, Flag);
+  auto emitObjSize = [&]() {
+    return evaluateOrEmitBuiltinObjectSize(CE->getArg(0), BOSType, SizeTy,
+                                           ArgVals[0], false);
+  };
+
+  unsigned FortifiedVariantID = Builtin::getFortifiedVariantFunction(BuiltinID);
+  assert(FortifiedVariantID != 0 && "Should be diagnosed in Sema");
+
+  // Adjust ArgVals to include a __builtin_object_size(n) or flag argument at
+  // the right position. Variadic printf-like functions take a flag and object
+  // size (if they're printing to a string) before the format string, and all
+  // other functions just take the object size as their last argument. The
+  // object size, if present, always corresponds to the first argument.
+  switch (BuiltinID) {
+  case Builtin::BImemcpy:
+  case Builtin::BImemmove:
+  case Builtin::BImemset:
+  case Builtin::BIstpcpy:
+  case Builtin::BIstrcat:
+  case Builtin::BIstrcpy:
+  case Builtin::BIstrlcat:
+  case Builtin::BIstrlcpy:
+  case Builtin::BIstrncat:
+  case Builtin::BIstrncpy:
+  case Builtin::BIstpncpy:
+    ArgVals.push_back(emitObjSize());
+    break;
+
+  case Builtin::BIsnprintf:
+  case Builtin::BIvsnprintf:
+    ArgVals.insert(ArgVals.begin() + 2, FlagVal);
+    ArgVals.insert(ArgVals.begin() + 3, emitObjSize());
+    break;
+
+  case Builtin::BIsprintf:
+  case Builtin::BIvsprintf:
+    ArgVals.insert(ArgVals.begin() + 1, FlagVal);
+    ArgVals.insert(ArgVals.begin() + 2, emitObjSize());
+    break;
+
+  case Builtin::BIfprintf:
+  case Builtin::BIvfprintf:
+    ArgVals.insert(ArgVals.begin() + 1, FlagVal);
+    break;
+
+  case Builtin::BIprintf:
+  case Builtin::BIvprintf:
+    ArgVals.insert(ArgVals.begin(), FlagVal);
+    break;
+
+  default:
+    llvm_unreachable("Unknown fortified builtin?");
+  }
+
+  ASTContext::GetBuiltinTypeError Err;
+  QualType VariantTy = getContext().GetBuiltinType(FortifiedVariantID, Err);
+  assert(Err == ASTContext::GE_None && "Should not codegen an error");
+  auto *LLVMVariantTy = cast<llvm::FunctionType>(ConvertType(VariantTy));
+  StringRef VariantName = getContext().BuiltinInfo.getName(FortifiedVariantID) +
+                          strlen("__builtin_");
+
+  llvm::Value *V = Builder.CreateCall(
+      CGM.CreateRuntimeFunction(LLVMVariantTy, VariantName), ArgVals);
+  return RValue::get(V);
+}
+
 RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
                                         const CallExpr *E,
                                         ReturnValueSlot ReturnValue) {
@@ -1489,6 +1569,10 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
       return RValue::get(llvm::ConstantFP::get(getLLVMContext(),
                                                Result.Val.getFloat()));
   }
+
+  if (const auto *FortifyAttr = FD->getAttr<FortifyStdLibAttr>())
+    return emitFortifiedStdLibCall(*this, E, BuiltinID, FortifyAttr->getType(),
+                                   FortifyAttr->getFlag());
 
   // There are LLVM math intrinsics/instructions corresponding to math library
   // functions except the LLVM op will never set errno while the math library
@@ -1982,6 +2066,12 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
       return RValue::get(ConstantInt::get(ResultType, 0));
 
     Value *ArgValue = EmitScalarExpr(Arg);
+    if (ArgType->isObjCObjectPointerType()) {
+      // Convert Objective-C objects to id because we cannot distinguish between
+      // LLVM types for Obj-C classes as they are opaque.
+      ArgType = CGM.getContext().getObjCIdType();
+      ArgValue = Builder.CreateBitCast(ArgValue, ConvertType(ArgType));
+    }
     Function *F =
         CGM.getIntrinsic(Intrinsic::is_constant, ConvertType(ArgType));
     Value *Result = Builder.CreateCall(F, ArgValue);
@@ -2521,8 +2611,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
     // Store the stack pointer to the setjmp buffer.
     Value *StackAddr =
         Builder.CreateCall(CGM.getIntrinsic(Intrinsic::stacksave));
-    Address StackSaveSlot =
-      Builder.CreateConstInBoundsGEP(Buf, 2, getPointerSize());
+    Address StackSaveSlot = Builder.CreateConstInBoundsGEP(Buf, 2);
     Builder.CreateStore(StackAddr, StackSaveSlot);
 
     // Call LLVM's EH setjmp, which is lightweight.
@@ -11765,9 +11854,10 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
     // Ops[2] = Builder.CreateZExt(Ops[2], Int64Ty);
     // return Builder.CreateCall(F, Ops);
     llvm::Type *Int128Ty = Builder.getInt128Ty();
-    Value *Val = Builder.CreateOr(
-        Builder.CreateShl(Builder.CreateZExt(Ops[1], Int128Ty), 64),
-        Builder.CreateZExt(Ops[0], Int128Ty));
+    Value *HighPart128 =
+        Builder.CreateShl(Builder.CreateZExt(Ops[1], Int128Ty), 64);
+    Value *LowPart128 = Builder.CreateZExt(Ops[0], Int128Ty);
+    Value *Val = Builder.CreateOr(HighPart128, LowPart128);
     Value *Amt = Builder.CreateAnd(Builder.CreateZExt(Ops[2], Int128Ty),
                                    llvm::ConstantInt::get(Int128Ty, 0x3f));
     Value *Res;
@@ -13475,6 +13565,30 @@ Value *CodeGenFunction::EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
     };
     Function *Callee = CGM.getIntrinsic(Intrinsic::wasm_memory_grow, ResultType);
     return Builder.CreateCall(Callee, Args);
+  }
+  case WebAssembly::BI__builtin_wasm_memory_init: {
+    llvm::APSInt SegConst;
+    if (!E->getArg(0)->isIntegerConstantExpr(SegConst, getContext()))
+      llvm_unreachable("Constant arg isn't actually constant?");
+    llvm::APSInt MemConst;
+    if (!E->getArg(1)->isIntegerConstantExpr(MemConst, getContext()))
+      llvm_unreachable("Constant arg isn't actually constant?");
+    if (!MemConst.isNullValue())
+      ErrorUnsupported(E, "non-zero memory index");
+    Value *Args[] = {llvm::ConstantInt::get(getLLVMContext(), SegConst),
+                     llvm::ConstantInt::get(getLLVMContext(), MemConst),
+                     EmitScalarExpr(E->getArg(2)), EmitScalarExpr(E->getArg(3)),
+                     EmitScalarExpr(E->getArg(4))};
+    Function *Callee = CGM.getIntrinsic(Intrinsic::wasm_memory_init);
+    return Builder.CreateCall(Callee, Args);
+  }
+  case WebAssembly::BI__builtin_wasm_data_drop: {
+    llvm::APSInt SegConst;
+    if (!E->getArg(0)->isIntegerConstantExpr(SegConst, getContext()))
+      llvm_unreachable("Constant arg isn't actually constant?");
+    Value *Arg = llvm::ConstantInt::get(getLLVMContext(), SegConst);
+    Function *Callee = CGM.getIntrinsic(Intrinsic::wasm_data_drop);
+    return Builder.CreateCall(Callee, {Arg});
   }
   case WebAssembly::BI__builtin_wasm_throw: {
     Value *Tag = EmitScalarExpr(E->getArg(0));

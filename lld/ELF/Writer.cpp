@@ -1262,8 +1262,8 @@ static void sortSection(OutputSection *Sec,
     auto *ISD = cast<InputSectionDescription>(Sec->SectionCommands[0]);
     std::stable_sort(ISD->Sections.begin(), ISD->Sections.end(),
                      [](const InputSection *A, const InputSection *B) -> bool {
-                       return A->File->PPC64SmallCodeModelRelocs &&
-                              !B->File->PPC64SmallCodeModelRelocs;
+                       return A->File->PPC64SmallCodeModelTocRelocs &&
+                              !B->File->PPC64SmallCodeModelTocRelocs;
                      });
     return;
   }
@@ -1676,6 +1676,8 @@ template <class ELFT> void Writer<ELFT>::finalizeSections() {
   // we can correctly decide if a dynamic relocation is needed.
   if (!Config->Relocatable)
     forEachRelSec(scanRelocations<ELFT>);
+
+  addIRelativeRelocs();
 
   if (In.Plt && !In.Plt->empty())
     In.Plt->addSymbols();
@@ -2382,9 +2384,21 @@ static uint16_t getELFType() {
 
 static uint8_t getAbiVersion() {
   // MIPS non-PIC executable gets ABI version 1.
-  if (Config->EMachine == EM_MIPS && getELFType() == ET_EXEC &&
-      (Config->EFlags & (EF_MIPS_PIC | EF_MIPS_CPIC)) == EF_MIPS_CPIC)
-    return 1;
+  if (Config->EMachine == EM_MIPS) {
+    if (getELFType() == ET_EXEC &&
+        (Config->EFlags & (EF_MIPS_PIC | EF_MIPS_CPIC)) == EF_MIPS_CPIC)
+      return 1;
+    return 0;
+  }
+
+  if (Config->EMachine == EM_AMDGPU) {
+    uint8_t Ver = ObjectFiles[0]->ABIVersion;
+    for (InputFile *File : makeArrayRef(ObjectFiles).slice(1))
+      if (File->ABIVersion != Ver)
+        error("incompatible ABI version: " + toString(File));
+    return Ver;
+  }
+
   return 0;
 }
 

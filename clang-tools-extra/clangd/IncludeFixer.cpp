@@ -79,6 +79,12 @@ std::vector<Fix> IncludeFixer::fix(DiagnosticsEngine::Level DiagLevel,
   case diag::err_typename_nested_not_found:
   case diag::err_no_template:
   case diag::err_no_template_suggest:
+  case diag::err_undeclared_use:
+  case diag::err_undeclared_use_suggest:
+  case diag::err_undeclared_var_use:
+  case diag::err_undeclared_var_use_suggest:
+  case diag::err_no_member: // Could be no member in namespace.
+  case diag::err_no_member_suggest:
     if (LastUnresolvedName) {
       // Try to fix unresolved name caused by missing declaraion.
       // E.g.
@@ -192,12 +198,6 @@ public:
     if (!SemaPtr->SourceMgr.isWrittenInMainFile(Typo.getLoc()))
       return clang::TypoCorrection();
 
-    assert(S && "Enclosing scope must be set.");
-
-    UnresolvedName Unresolved;
-    Unresolved.Name = Typo.getAsString();
-    Unresolved.Loc = Typo.getBeginLoc();
-
     // FIXME: support invalid scope before a type name. In the following
     // example, namespace "clang::tidy::" hasn't been declared/imported.
     //    namespace clang {
@@ -228,6 +228,12 @@ public:
           return TypoCorrection();
       }
     }
+    if (!SpecifiedScope && !S) // Give up if no scope available.
+      return TypoCorrection();
+
+    UnresolvedName Unresolved;
+    Unresolved.Name = Typo.getAsString();
+    Unresolved.Loc = Typo.getBeginLoc();
 
     auto *Sem = SemaPtr; // Avoid capturing `this`.
     Unresolved.GetScopes = [Sem, SpecifiedScope, S, LookupKind]() {
@@ -235,6 +241,7 @@ public:
       if (SpecifiedScope) {
         Scopes.push_back(*SpecifiedScope);
       } else {
+        assert(S);
         // No scope qualifier is specified. Collect all accessible scopes in the
         // context.
         VisitedContextCollector Collector;

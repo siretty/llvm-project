@@ -140,6 +140,15 @@ void ListFilesInDirRecursive(const std::string &Dir, long *Epoch,
     *Epoch = E;
 }
 
+
+void IterateDirRecursive(const std::string &Dir,
+                         void (*DirPreCallback)(const std::string &Dir),
+                         void (*DirPostCallback)(const std::string &Dir),
+                         void (*FileCallback)(const std::string &Dir)) {
+  // Unimplemented.
+  // TODO: implement, and then implement ListFilesInDirRecursive via this one.
+}
+
 char GetSeparator() {
   return '\\';
 }
@@ -334,6 +343,14 @@ bool IsInterestingCoverageFile(const std::string &FileName) {
 
 void RawPrint(const char *Str) {
   _write(2, Str, strlen(Str));
+}
+
+void MkDir(const std::string &Path) {
+  Printf("MkDir: unimplemented\n");
+}
+
+void RmDir(const std::string &Path) {
+  Printf("RmDir: unimplemented\n");
 }
 
 }  // namespace fuzzer

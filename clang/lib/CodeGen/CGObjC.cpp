@@ -158,9 +158,8 @@ llvm::Value *CodeGenFunction::EmitObjCCollectionLiteral(const Expr *E,
     if (ALE) {
       // Emit the element and store it to the appropriate array slot.
       const Expr *Rhs = ALE->getElement(i);
-      LValue LV = MakeAddrLValue(
-          Builder.CreateConstArrayGEP(Objects, i, getPointerSize()),
-          ElementType, AlignmentSource::Decl);
+      LValue LV = MakeAddrLValue(Builder.CreateConstArrayGEP(Objects, i),
+                                 ElementType, AlignmentSource::Decl);
 
       llvm::Value *value = EmitScalarExpr(Rhs);
       EmitStoreThroughLValue(RValue::get(value), LV, true);
@@ -170,17 +169,15 @@ llvm::Value *CodeGenFunction::EmitObjCCollectionLiteral(const Expr *E,
     } else {
       // Emit the key and store it to the appropriate array slot.
       const Expr *Key = DLE->getKeyValueElement(i).Key;
-      LValue KeyLV = MakeAddrLValue(
-          Builder.CreateConstArrayGEP(Keys, i, getPointerSize()),
-          ElementType, AlignmentSource::Decl);
+      LValue KeyLV = MakeAddrLValue(Builder.CreateConstArrayGEP(Keys, i),
+                                    ElementType, AlignmentSource::Decl);
       llvm::Value *keyValue = EmitScalarExpr(Key);
       EmitStoreThroughLValue(RValue::get(keyValue), KeyLV, /*isInit=*/true);
 
       // Emit the value and store it to the appropriate array slot.
       const Expr *Value = DLE->getKeyValueElement(i).Value;
-      LValue ValueLV = MakeAddrLValue(
-          Builder.CreateConstArrayGEP(Objects, i, getPointerSize()),
-          ElementType, AlignmentSource::Decl);
+      LValue ValueLV = MakeAddrLValue(Builder.CreateConstArrayGEP(Objects, i),
+                                      ElementType, AlignmentSource::Decl);
       llvm::Value *valueValue = EmitScalarExpr(Value);
       EmitStoreThroughLValue(RValue::get(valueValue), ValueLV, /*isInit=*/true);
       if (TrackNeededObjects) {
@@ -425,6 +422,40 @@ tryGenerateSpecializedMessageSend(CodeGenFunction &CGF, QualType ResultType,
   return None;
 }
 
+/// Instead of '[[MyClass alloc] init]', try to generate
+/// 'objc_alloc_init(MyClass)'. This provides a code size improvement on the
+/// caller side, as well as the optimized objc_alloc.
+static Optional<llvm::Value *>
+tryEmitSpecializedAllocInit(CodeGenFunction &CGF, const ObjCMessageExpr *OME) {
+  auto &Runtime = CGF.getLangOpts().ObjCRuntime;
+  if (!Runtime.shouldUseRuntimeFunctionForCombinedAllocInit())
+    return None;
+
+  // Match the exact pattern '[[MyClass alloc] init]'.
+  Selector Sel = OME->getSelector();
+  if (!OME->isInstanceMessage() || !OME->getType()->isObjCObjectPointerType() ||
+      !Sel.isUnarySelector() || Sel.getNameForSlot(0) != "init")
+    return None;
+
+  // Okay, this is '[receiver init]', check if 'receiver' is '[cls alloc]'.
+  auto *SubOME =
+      dyn_cast<ObjCMessageExpr>(OME->getInstanceReceiver()->IgnoreParens());
+  if (!SubOME)
+    return None;
+  Selector SubSel = SubOME->getSelector();
+  if (SubOME->getReceiverKind() != ObjCMessageExpr::Class ||
+      !SubOME->getType()->isObjCObjectPointerType() ||
+      !SubSel.isUnarySelector() || SubSel.getNameForSlot(0) != "alloc")
+    return None;
+
+  QualType ReceiverType = SubOME->getClassReceiver();
+  const ObjCObjectType *ObjTy = ReceiverType->getAs<ObjCObjectType>();
+  const ObjCInterfaceDecl *ID = ObjTy->getInterface();
+  assert(ID && "null interface should be impossible here");
+  llvm::Value *Receiver = CGF.CGM.getObjCRuntime().GetClass(CGF, ID);
+  return CGF.EmitObjCAllocInit(Receiver, CGF.ConvertType(OME->getType()));
+}
+
 RValue CodeGenFunction::EmitObjCMessageExpr(const ObjCMessageExpr *E,
                                             ReturnValueSlot Return) {
   // Only the lookup mechanism and first two arguments of the method
@@ -445,6 +476,9 @@ RValue CodeGenFunction::EmitObjCMessageExpr(const ObjCMessageExpr *E,
       return AdjustObjCObjectType(*this, E->getType(), RValue::get(result));
     }
   }
+
+  if (Optional<llvm::Value *> Val = tryEmitSpecializedAllocInit(*this, E))
+    return AdjustObjCObjectType(*this, E->getType(), RValue::get(*Val));
 
   // We don't retain the receiver in delegate init calls, and this is
   // safe because the receiver value is always loaded from 'self',
@@ -1666,8 +1700,8 @@ void CodeGenFunction::EmitObjCForCollectionStmt(const ObjCForCollectionStmt &S){
   // Save the initial mutations value.  This is the value at an
   // address that was written into the state object by
   // countByEnumeratingWithState:objects:count:.
-  Address StateMutationsPtrPtr = Builder.CreateStructGEP(
-      StatePtr, 2, 2 * getPointerSize(), "mutationsptr.ptr");
+  Address StateMutationsPtrPtr =
+      Builder.CreateStructGEP(StatePtr, 2, "mutationsptr.ptr");
   llvm::Value *StateMutationsPtr
     = Builder.CreateLoad(StateMutationsPtrPtr, "mutationsptr");
 
@@ -1748,8 +1782,8 @@ void CodeGenFunction::EmitObjCForCollectionStmt(const ObjCForCollectionStmt &S){
   // Fetch the buffer out of the enumeration state.
   // TODO: this pointer should actually be invariant between
   // refreshes, which would help us do certain loop optimizations.
-  Address StateItemsPtr = Builder.CreateStructGEP(
-      StatePtr, 1, getPointerSize(), "stateitems.ptr");
+  Address StateItemsPtr =
+      Builder.CreateStructGEP(StatePtr, 1, "stateitems.ptr");
   llvm::Value *EnumStateItems =
     Builder.CreateLoad(StateItemsPtr, "stateitems");
 
@@ -2504,6 +2538,13 @@ llvm::Value *CodeGenFunction::EmitObjCAllocWithZone(llvm::Value *value,
   return emitObjCValueOperation(*this, value, resultType,
                                 CGM.getObjCEntrypoints().objc_allocWithZone,
                                 "objc_allocWithZone", /*MayThrow=*/true);
+}
+
+llvm::Value *CodeGenFunction::EmitObjCAllocInit(llvm::Value *value,
+                                                llvm::Type *resultType) {
+  return emitObjCValueOperation(*this, value, resultType,
+                                CGM.getObjCEntrypoints().objc_alloc_init,
+                                "objc_alloc_init", /*MayThrow=*/true);
 }
 
 /// Produce the code to do a primitive release.

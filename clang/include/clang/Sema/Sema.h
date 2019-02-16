@@ -1403,7 +1403,6 @@ public:
   void PopCompoundScope();
 
   sema::CompoundScopeInfo &getCurCompoundScope() const;
-  bool isCurCompoundStmtAStmtExpr() const;
 
   bool hasAnyUnrecoverableErrorsInThisFunction() const;
 
@@ -4533,6 +4532,8 @@ public:
   void ActOnStartStmtExpr();
   ExprResult ActOnStmtExpr(SourceLocation LPLoc, Stmt *SubStmt,
                            SourceLocation RPLoc); // "({..})"
+  // Handle the final expression in a statement expression.
+  ExprResult ActOnStmtExprResult(ExprResult E);
   void ActOnStmtExprError();
 
   // __builtin_offsetof(type, identifier(.identifier|[expr])*)
@@ -6211,9 +6212,21 @@ public:
   // C++ Templates [C++ 14]
   //
   void FilterAcceptableTemplateNames(LookupResult &R,
-                                     bool AllowFunctionTemplates = true);
+                                     bool AllowFunctionTemplates = true,
+                                     bool AllowDependent = true);
   bool hasAnyAcceptableTemplateNames(LookupResult &R,
-                                     bool AllowFunctionTemplates = true);
+                                     bool AllowFunctionTemplates = true,
+                                     bool AllowDependent = true);
+  /// Try to interpret the lookup result D as a template-name.
+  ///
+  /// \param D A declaration found by name lookup.
+  /// \param AllowFunctionTemplates Whether function templates should be
+  ///        considered valid results.
+  /// \param AllowDependent Whether unresolved using declarations (that might
+  ///        name templates) should be considered valid results.
+  NamedDecl *getAsTemplateNameDecl(NamedDecl *D,
+                                   bool AllowFunctionTemplates = true,
+                                   bool AllowDependent = true);
 
   bool LookupTemplateName(LookupResult &R, Scope *S, CXXScopeSpec &SS,
                           QualType ObjectType, bool EnteringContext,
@@ -8763,6 +8776,9 @@ private:
   /// Pop OpenMP function region for non-capturing function.
   void popOpenMPFunctionRegion(const sema::FunctionScopeInfo *OldFSI);
 
+  /// Check whether we're allowed to call Callee from the current function.
+  void checkOpenMPDeviceFunction(SourceLocation Loc, FunctionDecl *Callee);
+
   /// Checks if a type or a declaration is disabled due to the owning extension
   /// being disabled, and emits diagnostic messages if it is disabled.
   /// \param D type or declaration to be checked.
@@ -10248,6 +10264,23 @@ public:
   ///
   /// Same as CUDADiagIfDeviceCode, with "host" and "device" switched.
   DeviceDiagBuilder CUDADiagIfHostCode(SourceLocation Loc, unsigned DiagID);
+
+  /// Creates a DeviceDiagBuilder that emits the diagnostic if the current
+  /// context is "used as device code".
+  ///
+  /// - If CurContext is a `declare target` function or it is known that the
+  /// function is emitted for the device, emits the diagnostics immediately.
+  /// - If CurContext is a non-`declare target` function and we are compiling
+  ///   for the device, creates a diagnostic which is emitted if and when we
+  ///   realize that the function will be codegen'ed.
+  ///
+  /// Example usage:
+  ///
+  ///  // Variable-length arrays are not allowed in NVPTX device code.
+  ///  if (diagIfOpenMPDeviceCode(Loc, diag::err_vla_unsupported))
+  ///    return ExprError();
+  ///  // Otherwise, continue parsing as normal.
+  DeviceDiagBuilder diagIfOpenMPDeviceCode(SourceLocation Loc, unsigned DiagID);
 
   enum CUDAFunctionTarget {
     CFT_Device,

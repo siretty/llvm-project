@@ -2527,7 +2527,7 @@ def err_attribute_argument_n_type : Error<
 def err_attribute_argument_type : Error<
   "%0 attribute requires %select{int or bool|an integer "
   "constant|a string|an identifier}1">;
-def err_attribute_argument_outof_range : Error<
+def err_attribute_argument_out_of_range : Error<
   "%0 attribute requires integer constant between %1 and %2 inclusive">;
 def err_init_priority_object_attr : Error<
   "can only use 'init_priority' attribute on file-scope definitions "
@@ -3023,7 +3023,7 @@ def warn_thread_attribute_decl_not_lockable : Warning<
 def warn_thread_attribute_decl_not_pointer : Warning<
   "%0 only applies to pointer types; type here is %1">,
   InGroup<ThreadSafetyAttributes>, DefaultIgnore;
-def err_attribute_argument_out_of_range : Error<
+def err_attribute_argument_out_of_bounds_extra_info : Error<
   "%0 attribute parameter %1 is out of bounds: "
   "%plural{0:no parameters to index into|"
   "1:can only be 1, since there is one parameter|"
@@ -3481,6 +3481,9 @@ def warn_objc_secondary_init_missing_init_call : Warning<
 def warn_objc_implementation_missing_designated_init_override : Warning<
   "method override for the designated initializer of the superclass %objcinstance0 not found">,
   InGroup<ObjCDesignatedInit>;
+def err_designated_init_attr_non_init : Error<
+  "'objc_designated_initializer' attribute only applies to init methods "
+  "of interface or class extension declarations">;
 
 // objc_bridge attribute diagnostics.
 def err_objc_attr_not_id : Error<
@@ -4820,6 +4823,8 @@ def ext_ms_forward_ref_enum : ExtWarn<
 def ext_forward_ref_enum_def : Extension<
   "redeclaration of already-defined enum %0 is a GNU extension">,
   InGroup<GNURedeclaredEnum>;
+def err_fortify_std_lib_bad_decl : Error<
+  "'fortify_stdlib' attribute applied to an unknown function">;
 
 def err_redefinition_of_enumerator : Error<"redefinition of enumerator %0">;
 def err_duplicate_member : Error<"duplicate member %0">;

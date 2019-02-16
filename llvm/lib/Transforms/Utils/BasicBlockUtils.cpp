@@ -49,13 +49,14 @@ using namespace llvm;
 
 void llvm::DetatchDeadBlocks(
     ArrayRef<BasicBlock *> BBs,
-    SmallVectorImpl<DominatorTree::UpdateType> *Updates) {
+    SmallVectorImpl<DominatorTree::UpdateType> *Updates,
+    bool KeepOneInputPHIs) {
   for (auto *BB : BBs) {
     // Loop through all of our successors and make sure they know that one
     // of their predecessors is going away.
     SmallPtrSet<BasicBlock *, 4> UniqueSuccessors;
     for (BasicBlock *Succ : successors(BB)) {
-      Succ->removePredecessor(BB);
+      Succ->removePredecessor(BB, KeepOneInputPHIs);
       if (Updates && UniqueSuccessors.insert(Succ).second)
         Updates->push_back({DominatorTree::Delete, BB, Succ});
     }
@@ -80,12 +81,13 @@ void llvm::DetatchDeadBlocks(
   }
 }
 
-void llvm::DeleteDeadBlock(BasicBlock *BB, DomTreeUpdater *DTU) {
-  DeleteDeadBlocks({BB}, DTU);
+void llvm::DeleteDeadBlock(BasicBlock *BB, DomTreeUpdater *DTU,
+                           bool KeepOneInputPHIs) {
+  DeleteDeadBlocks({BB}, DTU, KeepOneInputPHIs);
 }
 
-void llvm::DeleteDeadBlocks(ArrayRef <BasicBlock *> BBs,
-                            DomTreeUpdater *DTU) {
+void llvm::DeleteDeadBlocks(ArrayRef <BasicBlock *> BBs, DomTreeUpdater *DTU,
+                            bool KeepOneInputPHIs) {
 #ifndef NDEBUG
   // Make sure that all predecessors of each dead block is also dead.
   SmallPtrSet<BasicBlock *, 4> Dead(BBs.begin(), BBs.end());
@@ -96,7 +98,7 @@ void llvm::DeleteDeadBlocks(ArrayRef <BasicBlock *> BBs,
 #endif
 
   SmallVector<DominatorTree::UpdateType, 4> Updates;
-  DetatchDeadBlocks(BBs, DTU ? &Updates : nullptr);
+  DetatchDeadBlocks(BBs, DTU ? &Updates : nullptr, KeepOneInputPHIs);
 
   if (DTU)
     DTU->applyUpdates(Updates, /*ForceRemoveDuplicates*/ true);
@@ -549,6 +551,8 @@ BasicBlock *llvm::SplitBlockPredecessors(BasicBlock *BB,
     // all BlockAddress uses would need to be updated.
     assert(!isa<IndirectBrInst>(Preds[i]->getTerminator()) &&
            "Cannot split an edge from an IndirectBrInst");
+    assert(!isa<CallBrInst>(Preds[i]->getTerminator()) &&
+           "Cannot split an edge from a CallBrInst");
     Preds[i]->getTerminator()->replaceUsesOfWith(BB, NewBB);
   }
 
@@ -726,18 +730,23 @@ Instruction *llvm::SplitBlockAndInsertIfThen(Value *Cond,
                                              Instruction *SplitBefore,
                                              bool Unreachable,
                                              MDNode *BranchWeights,
-                                             DominatorTree *DT, LoopInfo *LI) {
+                                             DominatorTree *DT, LoopInfo *LI,
+                                             BasicBlock *ThenBlock) {
   BasicBlock *Head = SplitBefore->getParent();
   BasicBlock *Tail = Head->splitBasicBlock(SplitBefore->getIterator());
   Instruction *HeadOldTerm = Head->getTerminator();
   LLVMContext &C = Head->getContext();
-  BasicBlock *ThenBlock = BasicBlock::Create(C, "", Head->getParent(), Tail);
   Instruction *CheckTerm;
-  if (Unreachable)
-    CheckTerm = new UnreachableInst(C, ThenBlock);
-  else
-    CheckTerm = BranchInst::Create(Tail, ThenBlock);
-  CheckTerm->setDebugLoc(SplitBefore->getDebugLoc());
+  bool CreateThenBlock = (ThenBlock == nullptr);
+  if (CreateThenBlock) {
+    ThenBlock = BasicBlock::Create(C, "", Head->getParent(), Tail);
+    if (Unreachable)
+      CheckTerm = new UnreachableInst(C, ThenBlock);
+    else
+      CheckTerm = BranchInst::Create(Tail, ThenBlock);
+    CheckTerm->setDebugLoc(SplitBefore->getDebugLoc());
+  } else
+    CheckTerm = ThenBlock->getTerminator();
   BranchInst *HeadNewTerm =
     BranchInst::Create(/*ifTrue*/ThenBlock, /*ifFalse*/Tail, Cond);
   HeadNewTerm->setMetadata(LLVMContext::MD_prof, BranchWeights);
@@ -752,7 +761,10 @@ Instruction *llvm::SplitBlockAndInsertIfThen(Value *Cond,
         DT->changeImmediateDominator(Child, NewNode);
 
       // Head dominates ThenBlock.
-      DT->addNewBlock(ThenBlock, Head);
+      if (CreateThenBlock)
+        DT->addNewBlock(ThenBlock, Head);
+      else
+        DT->changeImmediateDominator(ThenBlock, Head);
     }
   }
 

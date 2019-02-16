@@ -411,9 +411,34 @@ option(CLANG_BUILD_TOOLS
 option(CLANG_ENABLE_ARCMT "Build ARCMT." ON)
 option(CLANG_ENABLE_STATIC_ANALYZER "Build static analyzer." ON)
 
+set(CLANG_ANALYZER_Z3_INSTALL_DIR "" CACHE STRING "Install directory of the Z3 solver.")
+
+find_package(Z3 4.7.1)
+
+if (CLANG_ANALYZER_Z3_INSTALL_DIR)
+  if (NOT Z3_FOUND)
+    message(FATAL_ERROR "Z3 4.7.1 has not been found in CLANG_ANALYZER_Z3_INSTALL_DIR: ${CLANG_ANALYZER_Z3_INSTALL_DIR}.")
+  endif()
+endif()
+
+set(CLANG_ANALYZER_ENABLE_Z3_SOLVER_DEFAULT "${Z3_FOUND}")
+
+option(CLANG_ANALYZER_ENABLE_Z3_SOLVER
+  "Enable Support for the Z3 constraint solver in the Clang Static Analyzer."
+  ${CLANG_ANALYZER_ENABLE_Z3_SOLVER_DEFAULT}
+)
+
+if (CLANG_ANALYZER_ENABLE_Z3_SOLVER)
+  if (NOT Z3_FOUND)
+    message(FATAL_ERROR "CLANG_ANALYZER_ENABLE_Z3_SOLVER cannot be enabled when Z3 is not available.")
+  endif()
+
+  set(CLANG_ANALYZER_WITH_Z3 1)
+endif()
+
 option(CLANG_ENABLE_PROTO_FUZZER "Build Clang protobuf fuzzer." OFF)
 
-if(NOT CLANG_ENABLE_STATIC_ANALYZER AND CLANG_ENABLE_ARCMT)
+if(NOT CLANG_ENABLE_STATIC_ANALYZER AND (CLANG_ENABLE_ARCMT OR CLANG_ANALYZER_ENABLE_Z3_SOLVER))
   message(FATAL_ERROR "Cannot disable static analyzer while enabling ARCMT or Z3")
 endif()
 
@@ -516,6 +541,27 @@ option(CLANG_INCLUDE_DOCS "Generate build targets for the Clang docs."
   ${LLVM_INCLUDE_DOCS})
 if( CLANG_INCLUDE_DOCS )
   add_subdirectory(docs)
+endif()
+
+# Custom target to install all clang libraries.
+add_custom_target(clang-libraries)
+set_target_properties(clang-libraries PROPERTIES FOLDER "Misc")
+
+if(NOT CMAKE_CONFIGURATION_TYPES)
+  add_llvm_install_targets(install-clang-libraries
+                           DEPENDS clang-libraries
+                           COMPONENT clang-libraries)
+endif()
+
+get_property(CLANG_LIBS GLOBAL PROPERTY CLANG_LIBS)
+if(CLANG_LIBS)
+  list(REMOVE_DUPLICATES CLANG_LIBS)
+  foreach(lib ${CLANG_LIBS})
+    add_dependencies(clang-libraries ${lib})
+    if(NOT CMAKE_CONFIGURATION_TYPES)
+      add_dependencies(install-clang-libraries install-${lib})
+    endif()
+  endforeach()
 endif()
 
 add_subdirectory(cmake/modules)
