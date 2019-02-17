@@ -25,6 +25,7 @@
 #include "clang/Sema/PrettyDeclStackTrace.h"
 #include "clang/Sema/Template.h"
 #include "clang/Sema/TemplateDeduction.h"
+#include "clang/Sema/TemplateInstCallback.h"
 #include "clang/Sema/SemaConcept.h"
 
 using namespace clang;
@@ -204,6 +205,10 @@ bool Sema::CodeSynthesisContext::isInstantiationRecord() const {
   case DefiningSynthesizedFunction:
   case ConstraintSubstitution:
     return false;
+       
+  // This function should never be called when Kind's value is Memoization.
+  case Memoization:
+    break;
   }
 
   llvm_unreachable("Invalid SynthesisKind!");
@@ -240,6 +245,7 @@ Sema::InstantiatingTemplate::InstantiatingTemplate(
         !SemaRef.InstantiatingSpecializations
              .insert(std::make_pair(Inst.Entity->getCanonicalDecl(), Inst.Kind))
              .second;
+    atTemplateBegin(SemaRef.TemplateInstCallbacks, SemaRef, Inst);
   }
 }
 
@@ -436,8 +442,10 @@ void Sema::InstantiatingTemplate::Clear() {
             std::make_pair(Active.Entity, Active.Kind));
     }
 
-    SemaRef.popCodeSynthesisContext();
+    atTemplateEnd(SemaRef.TemplateInstCallbacks, SemaRef,
+                  SemaRef.CodeSynthesisContexts.back());
 
+    SemaRef.popCodeSynthesisContext();
     Invalid = true;
   }
 }
@@ -692,6 +700,11 @@ void Sema::PrintInstantiationStack() {
       }
       break;
     }
+
+    case CodeSynthesisContext::Memoization:
+      break;
+    }
+    
     case CodeSynthesisContext::ConstraintsCheck: {
       unsigned DiagID = 0;
       if (isa<ConceptDecl>(Active->Entity))
@@ -769,6 +782,9 @@ Optional<TemplateDeductionInfo *> Sema::isSFINAEContext() const {
       // This happens in a context unrelated to template instantiation, so
       // there is no SFINAE.
       return None;
+
+    case CodeSynthesisContext::Memoization:
+      break;
     }
 
     // The inner context was transparent for SFINAE. If it occurred within a
