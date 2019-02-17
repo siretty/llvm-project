@@ -37,8 +37,12 @@ namespace {
 using llvm::APSInt;
 } // namespace
 
-static const llvm::StringSet<> KnownBannedMacroNames = {"EAGAIN", "EWOULDBLOCK",
-                                                        "SIGCLD", "SIGCHLD"};
+static constexpr llvm::StringLiteral KnownBannedMacroNames[] = {
+    "EAGAIN",
+    "EWOULDBLOCK",
+    "SIGCLD",
+    "SIGCHLD",
+};
 
 static bool incrementWithoutOverflow(const APSInt &Value, APSInt &Result) {
   Result = Value;
@@ -318,13 +322,13 @@ AST_MATCHER(ConditionalOperator, conditionalOperatorIsInMacro) {
 
 AST_MATCHER(Expr, isMacro) { return Node.getExprLoc().isMacroID(); }
 
-AST_MATCHER_P(Expr, expandedByMacro, llvm::StringSet<>, Names) {
+AST_MATCHER_P(Expr, expandedByMacro, ArrayRef<llvm::StringLiteral>, Names) {
   const SourceManager &SM = Finder->getASTContext().getSourceManager();
   const LangOptions &LO = Finder->getASTContext().getLangOpts();
   SourceLocation Loc = Node.getExprLoc();
   while (Loc.isMacroID()) {
     StringRef MacroName = Lexer::getImmediateMacroName(Loc, SM, LO);
-    if (Names.count(MacroName))
+    if (llvm::is_contained(Names, MacroName))
       return true;
     Loc = SM.getImmediateMacroCallerLoc(Loc);
   }
@@ -966,13 +970,6 @@ void RedundantExpressionCheck::checkRelationalExpr(
   }
 }
 
-unsigned intLog2(uint64_t X) {
-  unsigned Result = 0;
-  while (X >>= 1)
-    ++Result;
-  return Result;
-}
-
 void RedundantExpressionCheck::check(const MatchFinder::MatchResult &Result) {
   if (const auto *BinOp = Result.Nodes.getNodeAs<BinaryOperator>("binary")) {
     // If the expression's constants are macros, check whether they are
@@ -1049,7 +1046,7 @@ void RedundantExpressionCheck::check(const MatchFinder::MatchResult &Result) {
     // If ShiftingConst is shifted left with more bits than the position of the
     // leftmost 1 in the bit representation of AndValue, AndConstant is
     // ineffective.
-    if (intLog2(AndValue.getExtValue()) >= ShiftingValue)
+    if (AndValue.getActiveBits() > ShiftingValue)
       return;
 
     auto Diag = diag(BinaryAndExpr->getOperatorLoc(),
