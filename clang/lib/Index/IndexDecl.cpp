@@ -668,8 +668,11 @@ public:
 
   bool VisitTemplateDecl(const TemplateDecl *D) {
 
-    // Index the default values for the template parameters.
     const NamedDecl *Parent = D->getTemplatedDecl();
+    if (!Parent)
+      return true;
+
+    // Index the default values for the template parameters.
     if (D->getTemplateParameters() &&
         shouldIndexTemplateParameterDefaultValue(D, Parent)) {
       const TemplateParameterList *Params = D->getTemplateParameters();
@@ -688,9 +691,7 @@ public:
       }
     }
 
-    if (auto *TTD = D->getTemplatedDecl())
-      return Visit(TTD);
-    return true;
+    return Visit(Parent);
   }
 
   bool VisitFriendDecl(const FriendDecl *D) {

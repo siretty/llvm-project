@@ -7847,6 +7847,13 @@ LowerBUILD_VECTORAsVariablePermute(SDValue V, SelectionDAG &DAG,
       if (Subtarget.hasSSE3())
         Opcode = X86ISD::PSHUFB;
       break;
+    case MVT::v4f32:
+    case MVT::v4i32:
+      if (Subtarget.hasAVX()) {
+        Opcode = X86ISD::VPERMILPV;
+        ShuffleVT = MVT::v4f32;
+      }
+      break;
     case MVT::v2f64:
     case MVT::v2i64:
       if (Subtarget.hasAVX()) {
@@ -22262,13 +22269,6 @@ static SDValue LowerMUL(SDValue Op, const X86Subtarget &Subtarget,
     assert(Subtarget.hasSSE2() && !Subtarget.hasSSE41() &&
            "Should not custom lower when pmulld is available!");
 
-    // If the upper 17 bits of each element are zero then we can use PMADDWD.
-    APInt Mask17 = APInt::getHighBitsSet(32, 17);
-    if (DAG.MaskedValueIsZero(A, Mask17) && DAG.MaskedValueIsZero(B, Mask17))
-      return DAG.getNode(X86ISD::VPMADDWD, dl, VT,
-                         DAG.getBitcast(MVT::v8i16, A),
-                         DAG.getBitcast(MVT::v8i16, B));
-
     // Extract the odd parts.
     static const int UnpackMask[] = { 1, -1, 3, -1 };
     SDValue Aodds = DAG.getVectorShuffle(VT, dl, A, A, UnpackMask);
@@ -31246,102 +31246,7 @@ static SDValue combineExtractVectorElt(SDNode *N, SelectionDAG &DAG,
   if (SDValue MinMax = combineHorizontalMinMaxResult(N, DAG, Subtarget))
     return MinMax;
 
-  // Only operate on vectors of 4 elements, where the alternative shuffling
-  // gets to be more expensive.
-  if (SrcVT != MVT::v4i32)
-    return SDValue();
-
-  // Check whether every use of InputVector is an EXTRACT_VECTOR_ELT with a
-  // single use which is a sign-extend or zero-extend, and all elements are
-  // used.
-  SmallVector<SDNode *, 4> Uses;
-  unsigned ExtractedElements = 0;
-  for (SDNode::use_iterator UI = InputVector.getNode()->use_begin(),
-       UE = InputVector.getNode()->use_end(); UI != UE; ++UI) {
-    if (UI.getUse().getResNo() != InputVector.getResNo())
-      return SDValue();
-
-    SDNode *Extract = *UI;
-    if (Extract->getOpcode() != ISD::EXTRACT_VECTOR_ELT)
-      return SDValue();
-
-    if (Extract->getValueType(0) != MVT::i32)
-      return SDValue();
-    if (!Extract->hasOneUse())
-      return SDValue();
-    if (Extract->use_begin()->getOpcode() != ISD::SIGN_EXTEND &&
-        Extract->use_begin()->getOpcode() != ISD::ZERO_EXTEND)
-      return SDValue();
-    if (!isa<ConstantSDNode>(Extract->getOperand(1)))
-      return SDValue();
-
-    // Record which element was extracted.
-    ExtractedElements |= 1 << Extract->getConstantOperandVal(1);
-    Uses.push_back(Extract);
-  }
-
-  // If not all the elements were used, this may not be worthwhile.
-  if (ExtractedElements != 15)
-    return SDValue();
-
-  // Ok, we've now decided to do the transformation.
-  // If 64-bit shifts are legal, use the extract-shift sequence,
-  // otherwise bounce the vector off the cache.
-  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-  SDValue Vals[4];
-
-  if (TLI.isOperationLegal(ISD::SRA, MVT::i64)) {
-    SDValue Cst = DAG.getBitcast(MVT::v2i64, InputVector);
-    auto &DL = DAG.getDataLayout();
-    EVT VecIdxTy = DAG.getTargetLoweringInfo().getVectorIdxTy(DL);
-    SDValue BottomHalf = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, dl, MVT::i64, Cst,
-      DAG.getConstant(0, dl, VecIdxTy));
-    SDValue TopHalf = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, dl, MVT::i64, Cst,
-      DAG.getConstant(1, dl, VecIdxTy));
-
-    SDValue ShAmt = DAG.getConstant(
-        32, dl, DAG.getTargetLoweringInfo().getShiftAmountTy(MVT::i64, DL));
-    Vals[0] = DAG.getNode(ISD::TRUNCATE, dl, MVT::i32, BottomHalf);
-    Vals[1] = DAG.getNode(ISD::TRUNCATE, dl, MVT::i32,
-      DAG.getNode(ISD::SRA, dl, MVT::i64, BottomHalf, ShAmt));
-    Vals[2] = DAG.getNode(ISD::TRUNCATE, dl, MVT::i32, TopHalf);
-    Vals[3] = DAG.getNode(ISD::TRUNCATE, dl, MVT::i32,
-      DAG.getNode(ISD::SRA, dl, MVT::i64, TopHalf, ShAmt));
-  } else {
-    // Store the value to a temporary stack slot.
-    SDValue StackPtr = DAG.CreateStackTemporary(SrcVT);
-    SDValue Ch = DAG.getStore(DAG.getEntryNode(), dl, InputVector, StackPtr,
-                              MachinePointerInfo());
-
-    EVT ElementType = SrcVT.getVectorElementType();
-    unsigned EltSize = ElementType.getSizeInBits() / 8;
-
-    // Replace each use (extract) with a load of the appropriate element.
-    for (unsigned i = 0; i < 4; ++i) {
-      uint64_t Offset = EltSize * i;
-      auto PtrVT = TLI.getPointerTy(DAG.getDataLayout());
-      SDValue OffsetVal = DAG.getConstant(Offset, dl, PtrVT);
-
-      SDValue ScalarAddr =
-          DAG.getNode(ISD::ADD, dl, PtrVT, StackPtr, OffsetVal);
-
-      // Load the scalar.
-      Vals[i] =
-          DAG.getLoad(ElementType, dl, Ch, ScalarAddr, MachinePointerInfo());
-    }
-  }
-
-  // Replace the extracts
-  for (SmallVectorImpl<SDNode *>::iterator UI = Uses.begin(),
-    UE = Uses.end(); UI != UE; ++UI) {
-    SDNode *Extract = *UI;
-
-    uint64_t IdxVal = Extract->getConstantOperandVal(1);
-    DAG.ReplaceAllUsesOfValueWith(SDValue(Extract, 0), Vals[IdxVal]);
-  }
-
-  // The replacement was made in place; return N so it won't be revisited.
-  return SDValue(N, 0);
+  return SDValue();
 }
 
 /// If a vector select has an operand that is -1 or 0, try to simplify the
@@ -38972,7 +38877,7 @@ int X86TargetLowering::getScalingFactorCost(const DataLayout &DL,
   // will take 2 allocations in the out of order engine instead of 1
   // for plain addressing mode, i.e. inst (reg1).
   // E.g.,
-  // vaddps (%rsi,%drx), %ymm0, %ymm1
+  // vaddps (%rsi,%rdx), %ymm0, %ymm1
   // Requires two allocations (one for the load, one for the computation)
   // whereas:
   // vaddps (%rsi), %ymm0, %ymm1
