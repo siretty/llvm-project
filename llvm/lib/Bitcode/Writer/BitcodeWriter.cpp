@@ -1457,7 +1457,7 @@ void ModuleBitcodeWriter::writeDISubrange(const DISubrange *N,
 void ModuleBitcodeWriter::writeDIEnumerator(const DIEnumerator *N,
                                             SmallVectorImpl<uint64_t> &Record,
                                             unsigned Abbrev) {
-  Record.push_back(N->isDistinct());
+  Record.push_back((N->isUnsigned() << 1) | N->isDistinct());
   Record.push_back(rotateSign(N->getValue()));
   Record.push_back(VE.getMetadataOrNullID(N->getRawName()));
 
@@ -3551,6 +3551,11 @@ void ModuleBitcodeWriterBase::writePerModuleGlobalValueSummary() {
 void IndexBitcodeWriter::writeCombinedGlobalValueSummary() {
   Stream.EnterSubblock(bitc::GLOBALVAL_SUMMARY_BLOCK_ID, 3);
   Stream.EmitRecord(bitc::FS_VERSION, ArrayRef<uint64_t>{INDEX_VERSION});
+
+  // Write the index flags. Currently we only write a single flag, the value of
+  // withGlobalValueDeadStripping, which only applies to the combined index.
+  Stream.EmitRecord(bitc::FS_FLAGS,
+                    ArrayRef<uint64_t>{Index.withGlobalValueDeadStripping()});
 
   for (const auto &GVI : valueIds()) {
     Stream.EmitRecord(bitc::FS_VALUE_GUID,
