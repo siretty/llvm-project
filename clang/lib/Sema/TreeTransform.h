@@ -7020,6 +7020,8 @@ TreeTransform<Derived>::TransformCoroutineBodyStmt(CoroutineBodyStmt *S) {
 
   // The new CoroutinePromise object needs to be built and put into the current
   // FunctionScopeInfo before any transformations or rebuilding occurs.
+  if (!SemaRef.buildCoroutineParameterMoves(FD->getLocation()))
+    return StmtError();
   auto *Promise = SemaRef.buildCoroutinePromise(FD->getLocation());
   if (!Promise)
     return StmtError();
@@ -7110,8 +7112,6 @@ TreeTransform<Derived>::TransformCoroutineBodyStmt(CoroutineBodyStmt *S) {
       Builder.ReturnStmt = Res.get();
     }
   }
-  if (!Builder.buildParameterMoves())
-    return StmtError();
 
   return getDerived().RebuildCoroutineBodyStmt(Builder);
 }
