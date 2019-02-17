@@ -3500,7 +3500,8 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
                                bool InBaseClass,
                                VisibleDeclConsumer &Consumer,
                                VisibleDeclsRecord &Visited,
-                               bool IncludeDependentBases = false) {
+                               bool IncludeDependentBases,
+                               bool LoadExternal) {
   if (!Ctx)
     return;
 
@@ -3515,11 +3516,12 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
     auto &Idents = S.Context.Idents;
 
     // Ensure all external identifiers are in the identifier table.
-    if (IdentifierInfoLookup *External = Idents.getExternalIdentifierLookup()) {
-      std::unique_ptr<IdentifierIterator> Iter(External->getIdentifiers());
-      for (StringRef Name = Iter->Next(); !Name.empty(); Name = Iter->Next())
-        Idents.get(Name);
-    }
+    if (LoadExternal)
+      if (IdentifierInfoLookup *External = Idents.getExternalIdentifierLookup()) {
+        std::unique_ptr<IdentifierIterator> Iter(External->getIdentifiers());
+        for (StringRef Name = Iter->Next(); !Name.empty(); Name = Iter->Next())
+          Idents.get(Name);
+      }
 
     // Walk all lookup results in the TU for each identifier.
     for (const auto &Ident : Idents) {
@@ -3542,7 +3544,8 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
     Result.getSema().ForceDeclarationOfImplicitMembers(Class);
 
   // Enumerate all of the results in this context.
-  for (DeclContextLookupResult R : Ctx->lookups()) {
+  for (DeclContextLookupResult R :
+       LoadExternal ? Ctx->lookups() : Ctx->noload_lookups()) {
     for (auto *D : R) {
       if (auto *ND = Result.getAcceptableDecl(D)) {
         Consumer.FoundDecl(ND, Visited.checkHidden(ND), Ctx, InBaseClass);
@@ -3559,7 +3562,7 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
         continue;
       LookupVisibleDecls(I->getNominatedNamespace(), Result,
                          QualifiedNameLookup, InBaseClass, Consumer, Visited,
-                         IncludeDependentBases);
+                         IncludeDependentBases, LoadExternal);
     }
   }
 
@@ -3616,7 +3619,7 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
       // Find results in this base class (and its bases).
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(RD, Result, QualifiedNameLookup, true, Consumer,
-                         Visited, IncludeDependentBases);
+                         Visited, IncludeDependentBases, LoadExternal);
     }
   }
 
@@ -3625,22 +3628,23 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
     // Traverse categories.
     for (auto *Cat : IFace->visible_categories()) {
       ShadowContextRAII Shadow(Visited);
-      LookupVisibleDecls(Cat, Result, QualifiedNameLookup, false,
-                         Consumer, Visited);
+      LookupVisibleDecls(Cat, Result, QualifiedNameLookup, false, Consumer,
+                         Visited, IncludeDependentBases, LoadExternal);
     }
 
     // Traverse protocols.
     for (auto *I : IFace->all_referenced_protocols()) {
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(I, Result, QualifiedNameLookup, false, Consumer,
-                         Visited);
+                         Visited, IncludeDependentBases, LoadExternal);
     }
 
     // Traverse the superclass.
     if (IFace->getSuperClass()) {
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(IFace->getSuperClass(), Result, QualifiedNameLookup,
-                         true, Consumer, Visited);
+                         true, Consumer, Visited, IncludeDependentBases,
+                         LoadExternal);
     }
 
     // If there is an implementation, traverse it. We do this to find
@@ -3648,26 +3652,28 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
     if (IFace->getImplementation()) {
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(IFace->getImplementation(), Result,
-                         QualifiedNameLookup, InBaseClass, Consumer, Visited);
+                         QualifiedNameLookup, InBaseClass, Consumer, Visited,
+                         IncludeDependentBases, LoadExternal);
     }
   } else if (ObjCProtocolDecl *Protocol = dyn_cast<ObjCProtocolDecl>(Ctx)) {
     for (auto *I : Protocol->protocols()) {
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(I, Result, QualifiedNameLookup, false, Consumer,
-                         Visited);
+                         Visited, IncludeDependentBases, LoadExternal);
     }
   } else if (ObjCCategoryDecl *Category = dyn_cast<ObjCCategoryDecl>(Ctx)) {
     for (auto *I : Category->protocols()) {
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(I, Result, QualifiedNameLookup, false, Consumer,
-                         Visited);
+                         Visited, IncludeDependentBases, LoadExternal);
     }
 
     // If there is an implementation, traverse it.
     if (Category->getImplementation()) {
       ShadowContextRAII Shadow(Visited);
       LookupVisibleDecls(Category->getImplementation(), Result,
-                         QualifiedNameLookup, true, Consumer, Visited);
+                         QualifiedNameLookup, true, Consumer, Visited,
+                         IncludeDependentBases, LoadExternal);
     }
   }
 }
@@ -3675,7 +3681,8 @@ static void LookupVisibleDecls(DeclContext *Ctx, LookupResult &Result,
 static void LookupVisibleDecls(Scope *S, LookupResult &Result,
                                UnqualUsingDirectiveSet &UDirs,
                                VisibleDeclConsumer &Consumer,
-                               VisibleDeclsRecord &Visited) {
+                               VisibleDeclsRecord &Visited,
+                               bool LoadExternal) {
   if (!S)
     return;
 
@@ -3714,7 +3721,8 @@ static void LookupVisibleDecls(Scope *S, LookupResult &Result,
                                   Result.getNameLoc(), Sema::LookupMemberName);
           if (ObjCInterfaceDecl *IFace = Method->getClassInterface()) {
             LookupVisibleDecls(IFace, IvarResult, /*QualifiedNameLookup=*/false,
-                               /*InBaseClass=*/false, Consumer, Visited);
+                               /*InBaseClass=*/false, Consumer, Visited,
+                               /*IncludeDependentBases=*/false, LoadExternal);
           }
         }
 
@@ -3728,7 +3736,8 @@ static void LookupVisibleDecls(Scope *S, LookupResult &Result,
         continue;
 
       LookupVisibleDecls(Ctx, Result, /*QualifiedNameLookup=*/false,
-                         /*InBaseClass=*/false, Consumer, Visited);
+                         /*InBaseClass=*/false, Consumer, Visited,
+                         /*IncludeDependentBases=*/false, LoadExternal);
     }
   } else if (!S->getParent()) {
     // Look into the translation unit scope. We walk through the translation
@@ -3742,7 +3751,8 @@ static void LookupVisibleDecls(Scope *S, LookupResult &Result,
     // in DeclContexts unless we have to" optimization), we can eliminate this.
     Entity = Result.getSema().Context.getTranslationUnitDecl();
     LookupVisibleDecls(Entity, Result, /*QualifiedNameLookup=*/false,
-                       /*InBaseClass=*/false, Consumer, Visited);
+                       /*InBaseClass=*/false, Consumer, Visited,
+                       /*IncludeDependentBases=*/false, LoadExternal);
   }
 
   if (Entity) {
@@ -3751,17 +3761,19 @@ static void LookupVisibleDecls(Scope *S, LookupResult &Result,
     for (const UnqualUsingEntry &UUE : UDirs.getNamespacesFor(Entity))
       LookupVisibleDecls(const_cast<DeclContext *>(UUE.getNominatedNamespace()),
                          Result, /*QualifiedNameLookup=*/false,
-                         /*InBaseClass=*/false, Consumer, Visited);
+                         /*InBaseClass=*/false, Consumer, Visited,
+                         /*IncludeDependentBases=*/false, LoadExternal);
   }
 
   // Lookup names in the parent scope.
   ShadowContextRAII Shadow(Visited);
-  LookupVisibleDecls(S->getParent(), Result, UDirs, Consumer, Visited);
+  LookupVisibleDecls(S->getParent(), Result, UDirs, Consumer, Visited,
+                     LoadExternal);
 }
 
 void Sema::LookupVisibleDecls(Scope *S, LookupNameKind Kind,
                               VisibleDeclConsumer &Consumer,
-                              bool IncludeGlobalScope) {
+                              bool IncludeGlobalScope, bool LoadExternal) {
   // Determine the set of using directives available during
   // unqualified name lookup.
   Scope *Initial = S;
@@ -3782,13 +3794,13 @@ void Sema::LookupVisibleDecls(Scope *S, LookupNameKind Kind,
   if (!IncludeGlobalScope)
     Visited.visitedContext(Context.getTranslationUnitDecl());
   ShadowContextRAII Shadow(Visited);
-  ::LookupVisibleDecls(Initial, Result, UDirs, Consumer, Visited);
+  ::LookupVisibleDecls(Initial, Result, UDirs, Consumer, Visited, LoadExternal);
 }
 
 void Sema::LookupVisibleDecls(DeclContext *Ctx, LookupNameKind Kind,
                               VisibleDeclConsumer &Consumer,
                               bool IncludeGlobalScope,
-                              bool IncludeDependentBases) {
+                              bool IncludeDependentBases, bool LoadExternal) {
   LookupResult Result(*this, DeclarationName(), SourceLocation(), Kind);
   Result.setAllowHidden(Consumer.includeHiddenDecls());
   VisibleDeclsRecord Visited;
@@ -3797,7 +3809,7 @@ void Sema::LookupVisibleDecls(DeclContext *Ctx, LookupNameKind Kind,
   ShadowContextRAII Shadow(Visited);
   ::LookupVisibleDecls(Ctx, Result, /*QualifiedNameLookup=*/true,
                        /*InBaseClass=*/false, Consumer, Visited,
-                       IncludeDependentBases);
+                       IncludeDependentBases, LoadExternal);
 }
 
 /// LookupOrCreateLabel - Do a name lookup of a label with the specified name.
