@@ -970,14 +970,8 @@ def: Pat<(v8i8 (HexagonVSPLAT I32:$Rs)),
 
 def SDTHexagonI64I32I32: SDTypeProfile<1, 2,
   [SDTCisVT<0, i64>, SDTCisVT<1, i32>, SDTCisSameAs<1, 2>]>;
-def SDTHexagonVCOMBINE: SDTypeProfile<1, 2, [SDTCisSameAs<1, 2>,
-  SDTCisSubVecOfVec<1, 0>]>;
-def SDTHexagonVPACK: SDTypeProfile<1, 2, [SDTCisSameAs<1, 2>, SDTCisVec<1>]>;
 
 def HexagonCOMBINE:  SDNode<"HexagonISD::COMBINE",  SDTHexagonI64I32I32>;
-def HexagonVCOMBINE: SDNode<"HexagonISD::VCOMBINE", SDTHexagonVCOMBINE>;
-def HexagonVPACKE:   SDNode<"HexagonISD::VPACKE",   SDTHexagonVPACK>;
-def HexagonVPACKO:   SDNode<"HexagonISD::VPACKO",   SDTHexagonVPACK>;
 
 def: Pat<(HexagonCOMBINE I32:$Rs, I32:$Rt), (Combinew $Rs, $Rt)>;
 
@@ -2999,13 +2993,6 @@ def Combinev: OutPatFrag<(ops node:$Rs, node:$Rt),
 def LoVec: OutPatFrag<(ops node:$Vs), (EXTRACT_SUBREG $Vs, vsub_lo)>;
 def HiVec: OutPatFrag<(ops node:$Vs), (EXTRACT_SUBREG $Vs, vsub_hi)>;
 
-let Predicates = [UseHVX] in {
-  def: OpR_RR_pat<V6_vpackeb,  pf2<HexagonVPACKE>,     VecI8,  HVI8>;
-  def: OpR_RR_pat<V6_vpackob,  pf2<HexagonVPACKO>,     VecI8,  HVI8>;
-  def: OpR_RR_pat<V6_vpackeh,  pf2<HexagonVPACKE>,    VecI16, HVI16>;
-  def: OpR_RR_pat<V6_vpackoh,  pf2<HexagonVPACKO>,    VecI16, HVI16>;
-}
-
 def HexagonVZERO: SDNode<"HexagonISD::VZERO", SDTVecLeaf>;
 def vzero: PatFrag<(ops), (HexagonVZERO)>;
 
@@ -3080,6 +3067,25 @@ let Predicates = [UseHVX] in {
   def: Pat<(VecI32 (zext_invec HVI16:$Vs)), (LoVec (VZxth $Vs))>;
   def: Pat<(VecI32 (zext_invec HVI8:$Vs)),
            (LoVec (VZxth (LoVec (VZxtb $Vs))))>;
+
+  // The "source" types are not legal, and there are no parameterized
+  // definitions for them, but they are length-specific.
+  let Predicates = [UseHVX,UseHVX64B] in {
+    def: Pat<(VecI16 (sext_inreg HVI16:$Vs, v32i8)),
+             (V6_vasrh (V6_vaslh HVI16:$Vs, (A2_tfrsi 8)), (A2_tfrsi 8))>;
+    def: Pat<(VecI32 (sext_inreg HVI32:$Vs, v16i8)),
+             (V6_vasrh (V6_vaslh HVI32:$Vs, (A2_tfrsi 24)), (A2_tfrsi 24))>;
+    def: Pat<(VecI32 (sext_inreg HVI32:$Vs, v16i16)),
+             (V6_vasrh (V6_vaslh HVI32:$Vs, (A2_tfrsi 16)), (A2_tfrsi 16))>;
+  }
+  let Predicates = [UseHVX,UseHVX128B] in {
+    def: Pat<(VecI16 (sext_inreg HVI16:$Vs, v64i8)),
+             (V6_vasrh (V6_vaslh HVI16:$Vs, (A2_tfrsi 8)), (A2_tfrsi 8))>;
+    def: Pat<(VecI32 (sext_inreg HVI32:$Vs, v32i8)),
+             (V6_vasrh (V6_vaslh HVI32:$Vs, (A2_tfrsi 24)), (A2_tfrsi 24))>;
+    def: Pat<(VecI32 (sext_inreg HVI32:$Vs, v32i16)),
+             (V6_vasrh (V6_vaslh HVI32:$Vs, (A2_tfrsi 16)), (A2_tfrsi 16))>;
+  }
 
   def: Pat<(VecI8 (trunc HWI16:$Vss)),
            (V6_vpackeb (HiVec $Vss), (LoVec $Vss))>;

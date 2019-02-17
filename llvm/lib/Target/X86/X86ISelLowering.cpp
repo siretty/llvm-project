@@ -7832,55 +7832,66 @@ static SDValue materializeVectorConstant(SDValue Op, SelectionDAG &DAG,
 // TODO: Handle undefs
 // TODO: Utilize pshufb and zero mask blending to support more efficient
 // construction of vectors with constant-0 elements.
-// TODO: Use smaller-element vectors of same width, and "interpolate" the indices,
-// when no native operation available.
+// TODO: Use smaller-element vectors of same width, and "interpolate" the
+// indices, when no native operation available.
 static SDValue
 LowerBUILD_VECTORAsVariablePermute(SDValue V, SelectionDAG &DAG,
                                    const X86Subtarget &Subtarget) {
-  // Look for VPERMV and PSHUFB opportunities.
-  MVT VT = V.getSimpleValueType();
-  switch (VT.SimpleTy) {
-  default:
-    return SDValue();
-  case MVT::v16i8:
-    if (!Subtarget.hasSSE3())
-      return SDValue();
-    break;
-  case MVT::v8f32:
-  case MVT::v8i32:
-    if (!Subtarget.hasAVX2())
-      return SDValue();
-    break;
-  case MVT::v4i64:
-  case MVT::v4f64:
-    if (!Subtarget.hasVLX())
-      return SDValue();
-    break;
-  case MVT::v16f32:
-  case MVT::v8f64:
-  case MVT::v16i32:
-  case MVT::v8i64:
-    if (!Subtarget.hasAVX512())
-      return SDValue();
-    break;
-  case MVT::v32i16:
-    if (!Subtarget.hasBWI())
-      return SDValue();
-    break;
-  case MVT::v8i16:
-  case MVT::v16i16:
-    if (!Subtarget.hasVLX() || !Subtarget.hasBWI())
-      return SDValue();
-    break;
-  case MVT::v64i8:
-    if (!Subtarget.hasVBMI())
-      return SDValue();
-    break;
-  case MVT::v32i8:
-    if (!Subtarget.hasVLX() || !Subtarget.hasVBMI())
-      return SDValue();
-    break;
-  }
+  // Look for VPERMV/VPERMILPV/PSHUFB opportunities.
+  auto LegalPermuteOpcode = [&Subtarget](MVT DstVT, MVT &ShuffleVT) {
+    unsigned Opcode = 0;
+    switch (DstVT.SimpleTy) {
+    default:
+      break;
+    case MVT::v16i8:
+      if (Subtarget.hasSSE3())
+        Opcode = X86ISD::PSHUFB;
+      break;
+    case MVT::v2f64:
+    case MVT::v2i64:
+      if (Subtarget.hasAVX()) {
+        Opcode = X86ISD::VPERMILPV;
+        ShuffleVT = MVT::v2f64;
+      }
+      break;
+    case MVT::v8f32:
+    case MVT::v8i32:
+      if (Subtarget.hasAVX2())
+        Opcode = X86ISD::VPERMV;
+      break;
+    case MVT::v4i64:
+    case MVT::v4f64:
+      if (Subtarget.hasVLX())
+        Opcode = X86ISD::VPERMV;
+      break;
+    case MVT::v16f32:
+    case MVT::v8f64:
+    case MVT::v16i32:
+    case MVT::v8i64:
+      if (Subtarget.hasAVX512())
+        Opcode = X86ISD::VPERMV;
+      break;
+    case MVT::v32i16:
+      if (Subtarget.hasBWI())
+        Opcode = X86ISD::VPERMV;
+      break;
+    case MVT::v8i16:
+    case MVT::v16i16:
+      if (Subtarget.hasVLX() && Subtarget.hasBWI())
+        Opcode = X86ISD::VPERMV;
+      break;
+    case MVT::v64i8:
+      if (Subtarget.hasVBMI())
+        Opcode = X86ISD::VPERMV;
+      break;
+    case MVT::v32i8:
+      if (Subtarget.hasVLX() && Subtarget.hasVBMI())
+        Opcode = X86ISD::VPERMV;
+      break;
+    }
+    return Opcode;
+  };
+
   SDValue SrcVec, IndicesVec;
   // Check for a match of the permute source vector and permute index elements.
   // This is done by checking that the i-th build_vector operand is of the form:
@@ -7918,6 +7929,15 @@ LowerBUILD_VECTORAsVariablePermute(SDValue V, SelectionDAG &DAG,
       return SDValue();
   }
 
+  MVT VT = V.getSimpleValueType();
+  MVT ShuffleVT = VT;
+  unsigned Opcode = LegalPermuteOpcode(VT, ShuffleVT);
+  if (!Opcode)
+    return SDValue();
+  assert(VT.getScalarSizeInBits() == ShuffleVT.getScalarSizeInBits() &&
+         VT.getVectorNumElements() == ShuffleVT.getVectorNumElements() &&
+         "Illegal variable permute shuffle type");
+
   unsigned NumElts = VT.getVectorNumElements();
   if (IndicesVec.getValueType().getVectorNumElements() < NumElts)
     return SDValue();
@@ -7937,9 +7957,12 @@ LowerBUILD_VECTORAsVariablePermute(SDValue V, SelectionDAG &DAG,
                     SrcVec, DAG.getIntPtrConstant(0, SDLoc(SrcVec)));
   }
 
-  if (VT == MVT::v16i8)
-    return DAG.getNode(X86ISD::PSHUFB, SDLoc(V), VT, SrcVec, IndicesVec);
-  return DAG.getNode(X86ISD::VPERMV, SDLoc(V), VT, IndicesVec, SrcVec);
+  SrcVec = DAG.getBitcast(ShuffleVT, SrcVec);
+  SDValue Res =
+      Opcode == X86ISD::VPERMV
+          ? DAG.getNode(Opcode, SDLoc(V), ShuffleVT, IndicesVec, SrcVec)
+          : DAG.getNode(Opcode, SDLoc(V), ShuffleVT, SrcVec, IndicesVec);
+  return DAG.getBitcast(VT, Res);
 }
 
 SDValue
@@ -18629,7 +18652,7 @@ static SDValue LowerSIGN_EXTEND_Mask(SDValue Op,
   MVT WideEltVT = WideVT.getVectorElementType();
   if ((Subtarget.hasDQI() && WideEltVT.getSizeInBits() >= 32) ||
       (Subtarget.hasBWI() && WideEltVT.getSizeInBits() <= 16)) {
-    V = getExtendInVec(X86ISD::VSEXT, dl, WideVT, In, DAG);
+    V = DAG.getNode(ISD::SIGN_EXTEND, dl, WideVT, In);
   } else {
     SDValue NegOne = getOnesVector(WideVT, DAG, dl);
     SDValue Zero = getZeroVector(WideVT, Subtarget, DAG, dl);
@@ -25658,6 +25681,10 @@ bool X86TargetLowering::isVectorShiftByScalarCheap(Type *Ty) const {
   if (Subtarget.hasAVX2() && (Bits == 32 || Bits == 64))
     return false;
 
+  // AVX512BW has shifts such as vpsllvw.
+  if (Subtarget.hasBWI() && Bits == 16)
+      return false;
+
   // Otherwise, it's significantly cheaper to shift by a scalar amount than by a
   // fully general vector.
   return true;
@@ -25736,7 +25763,15 @@ bool X86TargetLowering::isZExtFree(SDValue Val, EVT VT2) const {
   return false;
 }
 
-bool X86TargetLowering::isVectorLoadExtDesirable(SDValue) const { return true; }
+bool X86TargetLowering::isVectorLoadExtDesirable(SDValue ExtVal) const {
+  EVT SrcVT = ExtVal.getOperand(0).getValueType();
+
+  // There is no extending load for vXi1.
+  if (SrcVT.getScalarType() == MVT::i1)
+    return false;
+
+  return true;
+}
 
 bool
 X86TargetLowering::isFMAFasterThanFMulAndFAdd(EVT VT) const {
@@ -29334,12 +29369,13 @@ static SDValue combineX86ShufflesConstants(const SmallVectorImpl<SDValue> &Ops,
 /// combining in this recursive walk.
 static SDValue combineX86ShufflesRecursively(
     ArrayRef<SDValue> SrcOps, int SrcOpIndex, SDValue Root,
-    ArrayRef<int> RootMask, ArrayRef<const SDNode *> SrcNodes, int Depth,
+    ArrayRef<int> RootMask, ArrayRef<const SDNode *> SrcNodes, unsigned Depth,
     bool HasVariableMask, SelectionDAG &DAG,
     TargetLowering::DAGCombinerInfo &DCI, const X86Subtarget &Subtarget) {
   // Bound the depth of our recursive combine because this is ultimately
   // quadratic in nature.
-  if (Depth > 8)
+  const unsigned MaxRecursionDepth = 8;
+  if (Depth > MaxRecursionDepth)
     return SDValue();
 
   // Directly rip through bitcasts to find the underlying operand.
@@ -29492,13 +29528,17 @@ static SDValue combineX86ShufflesRecursively(
   // See if we can recurse into each shuffle source op (if it's a target
   // shuffle). The source op should only be combined if it either has a
   // single use (i.e. current Op) or all its users have already been combined.
-  for (int i = 0, e = Ops.size(); i < e; ++i)
-    if (Ops[i].getNode()->hasOneUse() ||
-        SDNode::areOnlyUsersOf(CombinedNodes, Ops[i].getNode()))
-      if (SDValue Res = combineX86ShufflesRecursively(
-              Ops, i, Root, Mask, CombinedNodes, Depth + 1, HasVariableMask,
-              DAG, DCI, Subtarget))
-        return Res;
+  // Don't recurse if we already have more source ops than we can combine in
+  // the remaining recursion depth.
+  if (Ops.size() < (MaxRecursionDepth - Depth)) {
+    for (int i = 0, e = Ops.size(); i < e; ++i)
+      if (Ops[i].getNode()->hasOneUse() ||
+          SDNode::areOnlyUsersOf(CombinedNodes, Ops[i].getNode()))
+        if (SDValue Res = combineX86ShufflesRecursively(
+                Ops, i, Root, Mask, CombinedNodes, Depth + 1, HasVariableMask,
+                DAG, DCI, Subtarget))
+          return Res;
+  }
 
   // Attempt to constant fold all of the constant source ops.
   if (SDValue Cst = combineX86ShufflesConstants(
