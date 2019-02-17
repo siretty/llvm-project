@@ -582,6 +582,20 @@ NamedDecl *Parser::ParseTemplateParameter(unsigned Depth, unsigned Position) {
   if (Tok.is(tok::kw_template))
     return ParseTemplateTemplateParameter(Depth, Position);
 
+  // Is there just a typo in the input code? ('typedef' instead of 'typename')
+  if (Tok.is(tok::kw_typedef)) {
+    Diag(Tok.getLocation(), diag::err_expected_template_parameter);
+
+    Diag(Tok.getLocation(), diag::note_meant_to_use_typename)
+        << FixItHint::CreateReplacement(CharSourceRange::getCharRange(
+                                            Tok.getLocation(), Tok.getEndLoc()),
+                                        "typename");
+
+    Tok.setKind(tok::kw_typename);
+
+    return ParseTypeParameter(Depth, Position);
+  }
+
   // At this point we're either facing a constrained-parameter or a typename for
   // a non type template parameter.
   SourceLocation ParamStartLoc = Tok.getLocation();
