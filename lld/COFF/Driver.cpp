@@ -547,6 +547,12 @@ static void createImportLibrary(bool AsLib) {
   std::string LibName = getImportName(AsLib);
   std::string Path = getImplibPath();
 
+  if (!Config->Incremental) {
+    HandleError(writeImportLibrary(LibName, Path, Exports, Config->Machine,
+                                   false, Config->MinGW));
+    return;
+  }
+
   // If the import library already exists, replace it only if the contents
   // have changed.
   ErrorOr<std::unique_ptr<MemoryBuffer>> OldBuf = MemoryBuffer::getFile(Path);
@@ -572,6 +578,8 @@ static void createImportLibrary(bool AsLib) {
   if ((*OldBuf)->getBuffer() != NewBuf->getBuffer()) {
     OldBuf->reset();
     HandleError(errorCodeToError(sys::fs::rename(TmpName, Path)));
+  } else {
+    sys::fs::remove(TmpName);
   }
 }
 
@@ -768,6 +776,13 @@ static void parseOrderFile(StringRef Arg) {
     return;
   }
 
+  // Get a list of all comdat sections for error checking.
+  DenseSet<StringRef> Set;
+  for (Chunk *C : Symtab->getChunks())
+    if (auto *Sec = dyn_cast<SectionChunk>(C))
+      if (Sec->Sym)
+        Set.insert(Sec->Sym->getName());
+
   // Open a file.
   StringRef Path = Arg.substr(1);
   std::unique_ptr<MemoryBuffer> MB = CHECK(
@@ -780,7 +795,11 @@ static void parseOrderFile(StringRef Arg) {
   for (std::string S : args::getLines(MB->getMemBufferRef())) {
     if (Config->Machine == I386 && !isDecorated(S))
       S = "_" + S;
-    Config->Order[S] = INT_MIN + Config->Order.size();
+
+    if (Set.count(S) == 0)
+      warn("/order:" + Arg + ": missing symbol: " + S);
+    else
+      Config->Order[S] = INT_MIN + Config->Order.size();
   }
 }
 
@@ -894,6 +913,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Handle /debug
   if (Args.hasArg(OPT_debug, OPT_debug_dwarf, OPT_debug_ghash)) {
     Config->Debug = true;
+    Config->Incremental = true;
     if (auto *Arg = Args.getLastArg(OPT_debugtype))
       Config->DebugTypes = parseDebugType(Arg->getValue());
     else
@@ -1100,12 +1120,32 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   Config->AllowBind = Args.hasFlag(OPT_allowbind, OPT_allowbind_no, true);
   Config->AllowIsolation =
       Args.hasFlag(OPT_allowisolation, OPT_allowisolation_no, true);
+  Config->Incremental =
+      Args.hasFlag(OPT_incremental, OPT_incremental_no,
+                   !Config->DoGC && !Config->DoICF && !Args.hasArg(OPT_order));
   Config->NxCompat = Args.hasFlag(OPT_nxcompat, OPT_nxcompat_no, true);
   Config->TerminalServerAware = Args.hasFlag(OPT_tsaware, OPT_tsaware_no, true);
   Config->DebugDwarf = Args.hasArg(OPT_debug_dwarf);
   Config->DebugGHashes = Args.hasArg(OPT_debug_ghash);
 
   Config->MapFile = getMapFile(Args);
+
+  if (Config->Incremental && Config->DoGC) {
+    warn("ignoring '/INCREMENTAL' because REF is enabled; use '/OPT:NOREF' to "
+         "disable");
+    Config->Incremental = false;
+  }
+
+  if (Config->Incremental && Config->DoICF) {
+    warn("ignoring '/INCREMENTAL' because ICF is enabled; use '/OPT:NOICF' to "
+         "disable");
+    Config->Incremental = false;
+  }
+
+  if (Config->Incremental && Args.hasArg(OPT_order)) {
+    warn("ignoring '/INCREMENTAL' due to '/ORDER' specification");
+    Config->Incremental = false;
+  }
 
   if (errorCount())
     return;
@@ -1187,10 +1227,6 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
       log("Entry name inferred: " + S);
     }
   }
-
-  // Handle /order
-  if (auto *Arg = Args.getLastArg(OPT_order))
-    parseOrderFile(Arg->getValue());
 
   // Handle /export
   for (auto *Arg : Args.filtered(OPT_export)) {
@@ -1365,7 +1401,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Handle /output-def (MinGW specific).
   if (auto *Arg = Args.getLastArg(OPT_output_def))
     writeDefFile(Arg->getValue());
-  
+
   // Set extra alignment for .comm symbols
   for (auto Pair : Config->AlignComm) {
     StringRef Name = Pair.first;
@@ -1390,6 +1426,12 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // Windows specific -- Create a side-by-side manifest file.
   if (Config->Manifest == Configuration::SideBySide)
     createSideBySideManifest();
+
+  // Handle /order. We want to do this at this moment because we
+  // need a complete list of comdat sections to warn on nonexistent
+  // functions.
+  if (auto *Arg = Args.getLastArg(OPT_order))
+    parseOrderFile(Arg->getValue());
 
   // Identify unreferenced COMDAT sections.
   if (Config->DoGC)

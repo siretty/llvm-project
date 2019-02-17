@@ -1996,14 +1996,15 @@ SDValue SelectionDAGLegalize::ExpandLibCall(RTLIB::Libcall LC, SDNode *Node,
     Type *ArgTy = ArgVT.getTypeForEVT(*DAG.getContext());
     Entry.Node = Op;
     Entry.Ty = ArgTy;
-    Entry.IsSExt = isSigned;
-    Entry.IsZExt = !isSigned;
+    Entry.IsSExt = TLI.shouldSignExtendTypeInLibCall(ArgVT, isSigned);
+    Entry.IsZExt = !TLI.shouldSignExtendTypeInLibCall(ArgVT, isSigned);
     Args.push_back(Entry);
   }
   SDValue Callee = DAG.getExternalSymbol(TLI.getLibcallName(LC),
                                          TLI.getPointerTy(DAG.getDataLayout()));
 
-  Type *RetTy = Node->getValueType(0).getTypeForEVT(*DAG.getContext());
+  EVT RetVT = Node->getValueType(0);
+  Type *RetTy = RetVT.getTypeForEVT(*DAG.getContext());
 
   // By default, the input chain to this libcall is the entry node of the
   // function. If the libcall is going to be emitted as a tail call then
@@ -2022,13 +2023,14 @@ SDValue SelectionDAGLegalize::ExpandLibCall(RTLIB::Libcall LC, SDNode *Node,
     InChain = TCChain;
 
   TargetLowering::CallLoweringInfo CLI(DAG);
+  bool signExtend = TLI.shouldSignExtendTypeInLibCall(RetVT, isSigned);
   CLI.setDebugLoc(SDLoc(Node))
       .setChain(InChain)
       .setLibCallee(TLI.getLibcallCallingConv(LC), RetTy, Callee,
                     std::move(Args))
       .setTailCall(isTailCall)
-      .setSExtResult(isSigned)
-      .setZExtResult(!isSigned)
+      .setSExtResult(signExtend)
+      .setZExtResult(!signExtend)
       .setIsPostTypeLegalization(true);
 
   std::pair<SDValue, SDValue> CallInfo = TLI.LowerCallTo(CLI);
@@ -4298,7 +4300,8 @@ void SelectionDAGLegalize::PromoteNode(SDNode *Node) {
         ISD::SRL, dl, NVT, Tmp1,
         DAG.getConstant(DiffBits, dl,
                         TLI.getShiftAmountTy(NVT, DAG.getDataLayout())));
-    Results.push_back(Tmp1);
+
+    Results.push_back(DAG.getNode(ISD::TRUNCATE, dl, OVT, Tmp1));
     break;
   }
   case ISD::FP_TO_UINT:

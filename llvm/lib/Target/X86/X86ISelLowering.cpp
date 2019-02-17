@@ -25593,6 +25593,11 @@ bool X86TargetLowering::isVectorShiftByScalarCheap(Type *Ty) const {
   if (Bits == 8)
     return false;
 
+  // XOP has v16i8/v8i16/v4i32/v2i64 variable vector shifts.
+  if (Subtarget.hasXOP() && Ty->getPrimitiveSizeInBits() == 128 &&
+      (Bits == 8 || Bits == 16 || Bits == 32 || Bits == 64))
+    return false;
+
   // AVX2 has vpsllv[dq] instructions (and other shifts) that make variable
   // shifts just as cheap as scalar ones.
   if (Subtarget.hasAVX2() && (Bits == 32 || Bits == 64))
@@ -34087,14 +34092,12 @@ static bool isSATValidOnAVX512Subtarget(EVT SrcVT, EVT DstVT,
     return false;
 
   // FIXME: Scalar type may be supported if we move it to vector register.
-  if (!SrcVT.isVector() || !SrcVT.isSimple() || SrcVT.getSizeInBits() > 512)
+  if (!SrcVT.isVector())
     return false;
 
   EVT SrcElVT = SrcVT.getScalarType();
   EVT DstElVT = DstVT.getScalarType();
-  if (SrcElVT.getSizeInBits() < 16 || SrcElVT.getSizeInBits() > 64)
-    return false;
-  if (DstElVT.getSizeInBits() < 8 || DstElVT.getSizeInBits() > 32)
+  if (DstElVT != MVT::i8 && DstElVT != MVT::i16 && DstElVT != MVT::i32)
     return false;
   if (SrcVT.is512BitVector() || Subtarget.hasVLX())
     return SrcElVT.getSizeInBits() >= 32 || Subtarget.hasBWI();
@@ -34164,7 +34167,10 @@ static SDValue detectSSatPattern(SDValue In, EVT VT) {
 /// Return the source value to be truncated or SDValue() if the pattern was not
 /// matched.
 static SDValue detectAVX512USatPattern(SDValue In, EVT VT,
-                                       const X86Subtarget &Subtarget) {
+                                       const X86Subtarget &Subtarget,
+                                       const TargetLowering &TLI) {
+  if (!TLI.isTypeLegal(In.getValueType()))
+    return SDValue();
   if (!isSATValidOnAVX512Subtarget(In.getValueType(), VT, Subtarget))
     return SDValue();
   return detectUSatPattern(In, VT);
@@ -34815,13 +34821,14 @@ static SDValue combineStore(SDNode *N, SelectionDAG &DAG,
                           St->getPointerInfo(), St->getAlignment(),
                           St->getMemOperand()->getFlags());
 
+    const TargetLowering &TLI = DAG.getTargetLoweringInfo();
     if (SDValue Val =
-        detectAVX512USatPattern(St->getValue(), St->getMemoryVT(), Subtarget))
+        detectAVX512USatPattern(St->getValue(), St->getMemoryVT(), Subtarget,
+                                TLI))
       return EmitTruncSStore(false /* Unsigned saturation */, St->getChain(),
                              dl, Val, St->getBasePtr(),
                              St->getMemoryVT(), St->getMemOperand(), DAG);
 
-    const TargetLowering &TLI = DAG.getTargetLoweringInfo();
     unsigned NumElems = VT.getVectorNumElements();
     assert(StVT != VT && "Cannot truncate to the same type");
     unsigned FromSz = VT.getScalarSizeInBits();
@@ -37452,9 +37459,8 @@ static SDValue combineSubToSubus(SDNode *N, SelectionDAG &DAG,
   if (!(Subtarget.hasSSE2() && (VT == MVT::v16i8 || VT == MVT::v8i16)) &&
       !(Subtarget.hasSSE41() && (VT == MVT::v8i32)) &&
       !(Subtarget.hasAVX2() && (VT == MVT::v32i8 || VT == MVT::v16i16)) &&
-      !(Subtarget.hasAVX512() && Subtarget.hasBWI() &&
-        (VT == MVT::v64i8 || VT == MVT::v32i16 || VT == MVT::v16i32 ||
-         VT == MVT::v8i64)))
+      !(Subtarget.hasBWI() && (VT == MVT::v64i8 || VT == MVT::v32i16 ||
+                               VT == MVT::v16i32 || VT == MVT::v8i64)))
     return SDValue();
 
   SDValue SubusLHS, SubusRHS;
