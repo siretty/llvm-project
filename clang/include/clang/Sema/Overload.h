@@ -614,6 +614,10 @@ namespace clang {
     /// argument.
     ovl_fail_inhctor_slice,
 
+    /// This candidate was not viable because it is a non-default multiversioned
+    /// function.
+    ovl_non_default_multiversion_function,
+    
     /// This candidate was not viable because its associated constraints were
     /// not satisfied.
     ovl_fail_constraints_not_satisfied
