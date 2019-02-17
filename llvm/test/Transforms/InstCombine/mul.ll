@@ -158,8 +158,8 @@ define i32 @signbit_mul_commute_extra_use(i32 %a, i32 %b) {
 
 define <2 x i32> @signbit_mul_vec(<2 x i32> %a, <2 x i32> %b) {
 ; CHECK-LABEL: @signbit_mul_vec(
-; CHECK-NEXT:    [[D:%.*]] = lshr <2 x i32> [[A:%.*]], <i32 31, i32 31>
-; CHECK-NEXT:    [[E:%.*]] = mul nuw <2 x i32> [[D]], [[B:%.*]]
+; CHECK-NEXT:    [[TMP1:%.*]] = ashr <2 x i32> [[A:%.*]], <i32 31, i32 31>
+; CHECK-NEXT:    [[E:%.*]] = and <2 x i32> [[TMP1]], [[B:%.*]]
 ; CHECK-NEXT:    ret <2 x i32> [[E]]
 ;
   %d = lshr <2 x i32> %a, <i32 31, i32 31>
@@ -169,8 +169,8 @@ define <2 x i32> @signbit_mul_vec(<2 x i32> %a, <2 x i32> %b) {
 
 define <2 x i32> @signbit_mul_vec_commute(<2 x i32> %a, <2 x i32> %b) {
 ; CHECK-LABEL: @signbit_mul_vec_commute(
-; CHECK-NEXT:    [[D:%.*]] = lshr <2 x i32> [[A:%.*]], <i32 31, i32 31>
-; CHECK-NEXT:    [[E:%.*]] = mul nuw <2 x i32> [[D]], [[B:%.*]]
+; CHECK-NEXT:    [[TMP1:%.*]] = ashr <2 x i32> [[A:%.*]], <i32 31, i32 31>
+; CHECK-NEXT:    [[E:%.*]] = and <2 x i32> [[TMP1]], [[B:%.*]]
 ; CHECK-NEXT:    ret <2 x i32> [[E]]
 ;
   %d = lshr <2 x i32> %a, <i32 31, i32 31>
@@ -258,8 +258,19 @@ define i32 @test24(i32 %A) {
   ret i32 %C
 }
 
-define i32 @test25(i32 %A, i32 %B) {
-; CHECK-LABEL: @test25(
+define i32 @neg_neg_mul(i32 %A, i32 %B) {
+; CHECK-LABEL: @neg_neg_mul(
+; CHECK-NEXT:    [[E:%.*]] = mul i32 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    ret i32 [[E]]
+;
+  %C = sub i32 0, %A
+  %D = sub i32 0, %B
+  %E = mul i32 %C, %D
+  ret i32 %E
+}
+
+define i32 @neg_neg_mul_nsw(i32 %A, i32 %B) {
+; CHECK-LABEL: @neg_neg_mul_nsw(
 ; CHECK-NEXT:    [[E:%.*]] = mul nsw i32 [[A:%.*]], [[B:%.*]]
 ; CHECK-NEXT:    ret i32 [[E]]
 ;
@@ -267,6 +278,57 @@ define i32 @test25(i32 %A, i32 %B) {
   %D = sub nsw i32 0, %B
   %E = mul nsw i32 %C, %D
   ret i32 %E
+}
+
+define i124 @neg_neg_mul_apint(i124 %A, i124 %B) {
+; CHECK-LABEL: @neg_neg_mul_apint(
+; CHECK-NEXT:    [[E:%.*]] = mul i124 [[A:%.*]], [[B:%.*]]
+; CHECK-NEXT:    ret i124 [[E]]
+;
+  %C = sub i124 0, %A
+  %D = sub i124 0, %B
+  %E = mul i124 %C, %D
+  ret i124 %E
+}
+
+define i32 @neg_mul_constant(i32 %A) {
+; CHECK-LABEL: @neg_mul_constant(
+; CHECK-NEXT:    [[E:%.*]] = mul i32 [[A:%.*]], -7
+; CHECK-NEXT:    ret i32 [[E]]
+;
+  %C = sub i32 0, %A
+  %E = mul i32 %C, 7
+  ret i32 %E
+}
+
+define i55 @neg_mul_constant_apint(i55 %A) {
+; CHECK-LABEL: @neg_mul_constant_apint(
+; CHECK-NEXT:    [[E:%.*]] = mul i55 [[A:%.*]], -7
+; CHECK-NEXT:    ret i55 [[E]]
+;
+  %C = sub i55 0, %A
+  %E = mul i55 %C, 7
+  ret i55 %E
+}
+
+define <3 x i8> @neg_mul_constant_vec(<3 x i8> %a) {
+; CHECK-LABEL: @neg_mul_constant_vec(
+; CHECK-NEXT:    [[B:%.*]] = mul <3 x i8> [[A:%.*]], <i8 -5, i8 -5, i8 -5>
+; CHECK-NEXT:    ret <3 x i8> [[B]]
+;
+  %A = sub <3 x i8> zeroinitializer, %a
+  %B = mul <3 x i8> %A, <i8 5, i8 5, i8 5>
+  ret <3 x i8> %B
+}
+
+define <3 x i4> @neg_mul_constant_vec_weird(<3 x i4> %a) {
+; CHECK-LABEL: @neg_mul_constant_vec_weird(
+; CHECK-NEXT:    [[B:%.*]] = mul <3 x i4> [[A:%.*]], <i4 -5, i4 -5, i4 -5>
+; CHECK-NEXT:    ret <3 x i4> [[B]]
+;
+  %A = sub <3 x i4> zeroinitializer, %a
+  %B = mul <3 x i4> %A, <i4 5, i4 5, i4 5>
+  ret <3 x i4> %B
 }
 
 define i32 @test26(i32 %A, i32 %B) {

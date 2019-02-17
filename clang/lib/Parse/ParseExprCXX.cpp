@@ -3207,7 +3207,8 @@ ExprResult Parser::ParseRequiresExpression() {
 
       if (!TryConstrainedParameter()) {
         SourceRange Range(Tok.getLocation(), FindSemi());
-        TypeResult ExpectedType = ParseTrailingReturnType(Range);
+        TypeResult ExpectedType =
+            ParseTrailingReturnType(Range, /*MayBeFollowedByDirectInit*/ false);
         if (!ExpectedType.isUsable() || ExpectedType.isInvalid()) {
           Braces.skipToEnd();
           Actions.ActOnExitRequiresExpr();

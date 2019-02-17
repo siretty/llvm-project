@@ -112,6 +112,9 @@ def SharedVar : SubsetSubject<Var,
 def GlobalVar : SubsetSubject<Var,
                              [{S->hasGlobalStorage()}], "global variables">;
 
+def InlineFunction : SubsetSubject<Function,
+                             [{S->isInlineSpecified()}], "inline functions">;
+
 def SingleArgConcept : SubsetSubject<Concept,
                  [{S->getTemplateParameters()->getMinRequiredArguments() <= 1}],
                                      "single argument concepts">;
@@ -596,6 +599,12 @@ def AlwaysInline : InheritableAttr {
   let Spellings = [GCC<"always_inline">, Keyword<"__forceinline">];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
+}
+
+def Artificial : InheritableAttr {
+  let Spellings = [GCC<"artificial">];
+  let Subjects = SubjectList<[InlineFunction], WarnDiag>;
+  let Documentation = [ArtificialDocs];
 }
 
 def XRayInstrument : InheritableAttr {
