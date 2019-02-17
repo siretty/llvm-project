@@ -529,6 +529,7 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->HasWrittenPrototype);
   Record.push_back(D->IsDeleted);
   Record.push_back(D->IsTrivial);
+  Record.push_back(D->IsTrivialForCall);
   Record.push_back(D->IsDefaulted);
   Record.push_back(D->IsExplicitlyDefaulted);
   Record.push_back(D->HasImplicitReturnZero);
@@ -2093,6 +2094,7 @@ void ASTWriter::WriteDeclAbbrevs() {
   Abv->Add(BitCodeAbbrevOp(1));                         // HasWrittenProto
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // Deleted
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // Trivial
+  Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // TrivialForCall
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // Defaulted
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // ExplicitlyDefaulted
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 1)); // ImplicitReturnZero

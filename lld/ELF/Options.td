@@ -57,6 +57,10 @@ defm Ttext: Eq<"Ttext">,
 def allow_multiple_definition: F<"allow-multiple-definition">,
   HelpText<"Allow multiple definitions">;
 
+defm apply_dynamic_relocs: B<"apply-dynamic-relocs",
+    "Apply dynamic relocations to place",
+    "Do not apply dynamic relocations to place">;
+
 defm as_needed: B<"as-needed",
     "Only set DT_NEEDED for shared libraries if used",
     "Always set DT_NEEDED for shared libraries">;
@@ -204,7 +208,7 @@ def no_dynamic_linker: F<"no-dynamic-linker">,
 def noinhibit_exec: F<"noinhibit-exec">,
   HelpText<"Retain the executable output file whenever it is still usable">;
 
-def no_omagic: Flag<["--"], "no-omagic">, MetaVarName<"<magic>">,
+def no_omagic: F<"no-omagic">, MetaVarName<"<magic>">,
   HelpText<"Do not set the text data sections to be writable">;
 
 def no_rosegment: F<"no-rosegment">,
