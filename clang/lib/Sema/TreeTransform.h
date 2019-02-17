@@ -2358,18 +2358,8 @@ public:
   /// Subclasses may override this routine to provide different behavior.
   ExprResult RebuildInitList(SourceLocation LBraceLoc,
                              MultiExprArg Inits,
-                             SourceLocation RBraceLoc,
-                             QualType ResultTy) {
-    ExprResult Result
-      = SemaRef.ActOnInitList(LBraceLoc, Inits, RBraceLoc);
-    if (Result.isInvalid() || ResultTy->isDependentType())
-      return Result;
-
-    // Patch in the result type we were given, which may have been computed
-    // when the initial InitListExpr was built.
-    InitListExpr *ILE = cast<InitListExpr>((Expr *)Result.get());
-    ILE->setType(ResultTy);
-    return Result;
+                             SourceLocation RBraceLoc) {
+    return SemaRef.ActOnInitList(LBraceLoc, Inits, RBraceLoc);
   }
 
   /// \brief Build a new designated initializer expression.
@@ -3470,11 +3460,10 @@ ExprResult TreeTransform<Derived>::TransformInitializer(Expr *Init,
                                   /*IsCall*/true, NewArgs, &ArgChanged))
     return ExprError();
 
-  // If this was list initialization, revert to list form.
+  // If this was list initialization, revert to syntactic list form.
   if (Construct->isListInitialization())
     return getDerived().RebuildInitList(Construct->getLocStart(), NewArgs,
-                                        Construct->getLocEnd(),
-                                        Construct->getType());
+                                        Construct->getLocEnd());
 
   // Build a ParenListExpr to represent anything else.
   SourceRange Parens = Construct->getParenOrBraceRange();
@@ -9589,7 +9578,7 @@ TreeTransform<Derived>::TransformInitListExpr(InitListExpr *E) {
   }
 
   return getDerived().RebuildInitList(E->getLBraceLoc(), Inits,
-                                      E->getRBraceLoc(), E->getType());
+                                      E->getRBraceLoc());
 }
 
 template<typename Derived>
