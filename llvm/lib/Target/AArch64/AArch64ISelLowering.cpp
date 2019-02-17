@@ -8839,7 +8839,7 @@ static SDValue performConcatVectorsCombine(SDNode *N,
 static SDValue tryCombineFixedPointConvert(SDNode *N,
                                            TargetLowering::DAGCombinerInfo &DCI,
                                            SelectionDAG &DAG) {
-  // Wait 'til after everything is legalized to try this. That way we have
+  // Wait until after everything is legalized to try this. That way we have
   // legal vector types and such.
   if (DCI.isBeforeLegalizeOps())
     return SDValue();
@@ -10981,4 +10981,9 @@ AArch64TargetLowering::getVaListSizeInBits(const DataLayout &DL) const {
     return getPointerTy(DL).getSizeInBits();
 
   return 3 * getPointerTy(DL).getSizeInBits() + 2 * 32;
+}
+
+void AArch64TargetLowering::finalizeLowering(MachineFunction &MF) const {
+  MF.getFrameInfo().computeMaxCallFrameSize(MF);
+  TargetLoweringBase::finalizeLowering(MF);
 }
