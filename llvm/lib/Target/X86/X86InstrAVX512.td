@@ -439,7 +439,7 @@ multiclass AVX512_maskable_logic<bits<8> O, Format F, X86VectorVTInfo _,
 
 // Alias instruction that maps zero vector to pxor / xorp* for AVX-512.
 // This is expanded by ExpandPostRAPseudos to an xorps / vxorps, and then
-// swizzled by ExecutionDepsFix to pxor.
+// swizzled by ExecutionDomainFix to pxor.
 // We set canFoldAsLoad because this can be converted to a constant-pool
 // load of an all-zeros value if folding it would be beneficial.
 let isReMaterializable = 1, isAsCheapAsAMove = 1, canFoldAsLoad = 1,
@@ -2761,19 +2761,12 @@ let Predicates = [HasAVX512] in {
   defm : operation_gpr_mask_copy_lowering<VK32,  v32i1>;
   defm : operation_gpr_mask_copy_lowering<VK64,  v64i1>;
 
-  def : Pat<(X86kshiftr  (X86kshiftl (v1i1 (scalar_to_vector GR8:$src)), (i8 15)), (i8 15)) ,
-          (COPY_TO_REGCLASS
-                (KMOVWkr (AND32ri8 (INSERT_SUBREG (i32 (IMPLICIT_DEF)),
-                                            GR8:$src, sub_8bit), (i32 1))), VK1)>;
-  def : Pat<(X86kshiftr  (X86kshiftl (v16i1 (scalar_to_vector GR8:$src)), (i8 15)), (i8 15)) ,
+  def : Pat<(insert_subvector (v16i1 immAllZerosV),
+                              (v1i1 (scalar_to_vector GR8:$src)), (iPTR 0)),
             (COPY_TO_REGCLASS
-                (KMOVWkr (AND32ri8 (INSERT_SUBREG (i32 (IMPLICIT_DEF)),
-                                            GR8:$src, sub_8bit), (i32 1))), VK16)>;
-  def : Pat<(X86kshiftr  (X86kshiftl (v8i1 (scalar_to_vector GR8:$src)), (i8 15)), (i8 15)) ,
-         (COPY_TO_REGCLASS
-          (KMOVWkr (AND32ri8 (INSERT_SUBREG (i32 (IMPLICIT_DEF)),
-                                            GR8:$src, sub_8bit), (i32 1))), VK8)>;
-
+             (KMOVWkr (AND32ri8
+                       (INSERT_SUBREG (i32 (IMPLICIT_DEF)), GR8:$src, sub_8bit),
+                       (i32 1))), VK16)>;
 }
 
 // Mask unary operation

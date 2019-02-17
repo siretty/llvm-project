@@ -616,6 +616,7 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::MOVSLDUPrr,      X86::MOVSLDUPrm,          TB_ALIGN_16 },
     { X86::MOVSX16rr8,      X86::MOVSX16rm8,          0 },
     { X86::MOVSX32rr16,     X86::MOVSX32rm16,         0 },
+    { X86::MOVSX32_NOREXrr8, X86::MOVSX32_NOREXrm8,   0 },
     { X86::MOVSX32rr8,      X86::MOVSX32rm8,          0 },
     { X86::MOVSX64rr16,     X86::MOVSX64rm16,         0 },
     { X86::MOVSX64rr32,     X86::MOVSX64rm32,         0 },
@@ -627,6 +628,8 @@ X86InstrInfo::X86InstrInfo(X86Subtarget &STI)
     { X86::MOVZX32rr16,     X86::MOVZX32rm16,         0 },
     { X86::MOVZX32_NOREXrr8, X86::MOVZX32_NOREXrm8,   0 },
     { X86::MOVZX32rr8,      X86::MOVZX32rm8,          0 },
+    { X86::MOVZX64rr16,     X86::MOVZX64rm16,         0 },
+    { X86::MOVZX64rr8,      X86::MOVZX64rm8,          0 },
     { X86::PABSBrr,         X86::PABSBrm,             TB_ALIGN_16 },
     { X86::PABSDrr,         X86::PABSDrm,             TB_ALIGN_16 },
     { X86::PABSWrr,         X86::PABSWrm,             TB_ALIGN_16 },
@@ -8061,7 +8064,8 @@ bool X86InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
 ///
 /// FIXME: This should be turned into a TSFlags.
 ///
-static bool hasPartialRegUpdate(unsigned Opcode) {
+static bool hasPartialRegUpdate(unsigned Opcode,
+                                const X86Subtarget &Subtarget) {
   switch (Opcode) {
   case X86::CVTSI2SSrr:
   case X86::CVTSI2SSrm:
@@ -8100,17 +8104,32 @@ static bool hasPartialRegUpdate(unsigned Opcode) {
   case X86::SQRTSDr_Int:
   case X86::SQRTSDm_Int:
     return true;
+  // GPR
+  case X86::POPCNT32rm:
+  case X86::POPCNT32rr:
+  case X86::POPCNT64rm:
+  case X86::POPCNT64rr:
+    return Subtarget.hasPOPCNTFalseDeps();
+  case X86::LZCNT32rm:
+  case X86::LZCNT32rr:
+  case X86::LZCNT64rm:
+  case X86::LZCNT64rr:
+  case X86::TZCNT32rm:
+  case X86::TZCNT32rr:
+  case X86::TZCNT64rm:
+  case X86::TZCNT64rr:
+    return Subtarget.hasLZCNTFalseDeps();
   }
 
   return false;
 }
 
-/// Inform the ExecutionDepsFix pass how many idle
+/// Inform the BreakFalseDeps pass how many idle
 /// instructions we would like before a partial register update.
 unsigned X86InstrInfo::getPartialRegUpdateClearance(
     const MachineInstr &MI, unsigned OpNum,
     const TargetRegisterInfo *TRI) const {
-  if (OpNum != 0 || !hasPartialRegUpdate(MI.getOpcode()))
+  if (OpNum != 0 || !hasPartialRegUpdate(MI.getOpcode(), Subtarget))
     return 0;
 
   // If MI is marked as reading Reg, the partial register update is wanted.
@@ -8262,7 +8281,7 @@ static bool hasUndefRegUpdate(unsigned Opcode) {
   return false;
 }
 
-/// Inform the ExecutionDepsFix pass how many idle instructions we would like
+/// Inform the BreakFalseDeps pass how many idle instructions we would like
 /// before certain undef register reads.
 ///
 /// This catches the VCVTSI2SD family of instructions:
@@ -8315,6 +8334,20 @@ void X86InstrInfo::breakPartialRegDependency(
         .addReg(XReg, RegState::Undef)
         .addReg(XReg, RegState::Undef)
         .addReg(Reg, RegState::ImplicitDefine);
+    MI.addRegisterKilled(Reg, TRI, true);
+  } else if (X86::GR64RegClass.contains(Reg)) {
+    // Using XOR32rr because it has shorter encoding and zeros up the upper bits
+    // as well.
+    unsigned XReg = TRI->getSubReg(Reg, X86::sub_32bit);
+    BuildMI(*MI.getParent(), MI, MI.getDebugLoc(), get(X86::XOR32rr), XReg)
+        .addReg(XReg, RegState::Undef)
+        .addReg(XReg, RegState::Undef)
+        .addReg(Reg, RegState::ImplicitDefine);
+    MI.addRegisterKilled(Reg, TRI, true);
+  } else if (X86::GR32RegClass.contains(Reg)) {
+    BuildMI(*MI.getParent(), MI, MI.getDebugLoc(), get(X86::XOR32rr), Reg)
+        .addReg(Reg, RegState::Undef)
+        .addReg(Reg, RegState::Undef);
     MI.addRegisterKilled(Reg, TRI, true);
   }
 }
@@ -8487,7 +8520,8 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
 
   // Avoid partial register update stalls unless optimizing for size.
   // TODO: we should block undef reg update as well.
-  if (!MF.getFunction().optForSize() && hasPartialRegUpdate(MI.getOpcode()))
+  if (!MF.getFunction().optForSize() &&
+      hasPartialRegUpdate(MI.getOpcode(), Subtarget))
     return nullptr;
 
   unsigned NumOps = MI.getDesc().getNumOperands();
@@ -8656,7 +8690,8 @@ X86InstrInfo::foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
   // Unless optimizing for size, don't fold to avoid partial
   // register update stalls
   // TODO: we should block undef reg update as well.
-  if (!MF.getFunction().optForSize() && hasPartialRegUpdate(MI.getOpcode()))
+  if (!MF.getFunction().optForSize() &&
+      hasPartialRegUpdate(MI.getOpcode(), Subtarget))
     return nullptr;
 
   // Don't fold subreg spills, or reloads that use a high subreg.
@@ -8855,7 +8890,8 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
 
   // Avoid partial register update stalls unless optimizing for size.
   // TODO: we should block undef reg update as well.
-  if (!MF.getFunction().optForSize() && hasPartialRegUpdate(MI.getOpcode()))
+  if (!MF.getFunction().optForSize() &&
+      hasPartialRegUpdate(MI.getOpcode(), Subtarget))
     return nullptr;
 
   // Determine the alignment of the load.

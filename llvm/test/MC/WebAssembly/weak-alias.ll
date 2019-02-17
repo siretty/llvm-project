@@ -174,7 +174,7 @@ entry:
 ; CHECK-NEXT:         Index:           1
 ; CHECK-NEXT:         Offset:          0x0000000F
 ; CHECK-NEXT:       - Type:            R_WEBASSEMBLY_TABLE_INDEX_I32
-; CHECK-NEXT:         Index:           2
+; CHECK-NEXT:         Index:           0
 ; CHECK-NEXT:         Offset:          0x00000018
 ; CHECK-NEXT:     Segments:        
 ; CHECK-NEXT:       - SectionOffset:   6
@@ -191,21 +191,6 @@ entry:
 ; CHECK-NEXT:         Content:         '01000000'
 
 ; CHECK:        - Type:            CUSTOM
-; CHECK-NEXT:     Name:            name
-; CHECK-NEXT:     FunctionNames:   
-; CHECK-NEXT:       - Index:           0
-; CHECK-NEXT:         Name:            foo_alias
-; CHECK-NEXT:       - Index:           1
-; CHECK-NEXT:         Name:            foo
-; CHECK-NEXT:       - Index:           2
-; CHECK-NEXT:         Name:            call_direct
-; CHECK-NEXT:       - Index:           3
-; CHECK-NEXT:         Name:            call_alias
-; CHECK-NEXT:       - Index:           4
-; CHECK-NEXT:         Name:            call_direct_ptr
-; CHECK-NEXT:       - Index:           5
-; CHECK-NEXT:         Name:            call_alias_ptr
-; CHECK-NEXT:   - Type:            CUSTOM
 ; CHECK-NEXT:     Name:            linking
 ; CHECK-NEXT:     DataSize:        20
 ; CHECK-NEXT:     SymbolInfo:      
